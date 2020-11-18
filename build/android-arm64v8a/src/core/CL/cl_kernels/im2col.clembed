@@ -1,7 +1,7 @@
 R"(
 
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,7 +24,7 @@ R"(
  * SOFTWARE.
  */
 /*
- * Copyright (c) 2016-2020 ARM Limited.
+ * Copyright (c) 2016-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -219,6 +219,49 @@ R"(
 #define VLOAD_STR(size) vload##size
 #define VLOAD(size) VLOAD_STR(size)
 
+#define PIXEL_UNIT4 1
+#define PIXEL_UNIT8 2
+#define PIXEL_UNIT16 4
+
+/** Utility macro to convert a vector size in pixel unit.
+ *
+ * @name CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT
+ *
+ * @param[in] vec_size Vector size. Only 4,8 and 16 is supported
+ *
+ * @return The pixel unit (number of pixels)
+ * @{
+ */
+#define CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT_STR(vec_size) PIXEL_UNIT##vec_size
+#define CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT(vec_size) CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT_STR(vec_size)
+/** @} */ // end of group CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT
+
+#define read_image2d_floatx1(img, x_coord, y_coord) (float4)(read_imagef(img, (int2)(x_coord, y_coord)));
+#define read_image2d_floatx2(img, x_coord, y_coord) (float8)(read_imagef(img, (int2)(x_coord, y_coord)), read_imagef(img, (int2)(x_coord + 1, y_coord)));
+#define read_image2d_floatx4(img, x_coord, y_coord) (float16)(read_imagef(img, (int2)(x_coord, y_coord)), read_imagef(img, (int2)(x_coord + 1, y_coord)), read_imagef(img, (int2)(x_coord + 2, y_coord)), read_imagef(img, (int2)(x_coord + 3, y_coord)));
+
+#if defined(ARM_COMPUTE_OPENCL_FP16_ENABLED) && defined(cl_khr_fp16)
+#define read_image2d_halfx1(img, x_coord, y_coord) (half4)(read_imageh(img, (int2)(x_coord, y_coord)));
+#define read_image2d_halfx2(img, x_coord, y_coord) (half8)(read_imageh(img, (int2)(x_coord, y_coord)), read_imageh(img, (int2)(x_coord + 1, y_coord)));
+#define read_image2d_halfx4(img, x_coord, y_coord) (half16)(read_imageh(img, (int2)(x_coord, y_coord)), read_imageh(img, (int2)(x_coord + 1, y_coord)), read_imageh(img, (int2)(x_coord + 2, y_coord)), read_imageh(img, (int2)(x_coord + 3, y_coord)));
+#endif // defined(ARM_COMPUTE_OPENCL_FP16_ENABLED) && defined(cl_khr_fp16)
+
+/** Utility macro to read a 2D OpenCL image object.
+ *
+ * @note Coordinates are not normalized
+ *
+ * @param[in] data_type Data type
+ * @param[in] n0        Number of pixel to read. Only 1,2 and 4 is supported
+ * @param[in] img       OpenCL image object
+ * @param[in] x_coord   The x coordinate for the top-left pixel
+ * @param[in] y_coord   The y coordinate for the top-left pixel
+ *
+ * @return Pixels from the 2D OpenCL image object
+ * @{
+ */
+#define READ_IMAGE2D_STR(data_type, n0, img, x_coord, y_coord) read_image2d_##data_type##x##n0(img, x_coord, y_coord)
+#define READ_IMAGE2D(data_type, n0, img, x_coord, y_coord) READ_IMAGE2D_STR(data_type, n0, img, x_coord, y_coord)
+
 #define VSTORE_STR(size) vstore##size
 #define VSTORE(size) VSTORE_STR(size)
 
@@ -236,6 +279,142 @@ R"(
 
 #define vload1(OFFSET, PTR) *(OFFSET + PTR)
 #define vstore1(DATA, OFFSET, PTR) *(OFFSET + PTR) = DATA
+
+/** Extended partial vstore that correctly handles scalar values as well.
+ * Store the **lower** 0 to (n-1)th elements of the given vector while minimising the amount of vstore ops
+ * @name VSTORE_PARTIAL
+ *
+ * @note With this macro, the passed data can be both a vector and a scalar
+ * @note @p store_size needs to be <= @p size
+ * eg 1: Valid
+ * VSTORE_PARTIAL(16, 15) ...;
+ * eg 2: Invalid
+ * VSTORE_PARTIAL(4, 7) ...;
+ *
+ * @param[in] size       The width of @p DATA. Supported values: 1(scalar), 2, 3, 4, 8, 16
+ * @param[in] store_size The number of lower elements to store. Supported values: 1-16, but has to be <= @p size
+ * @{
+ */
+#define VSTORE_PARTIAL_STR(size, store_size) vstore_partial_##size##_##store_size
+#define VSTORE_PARTIAL(size, store_size) VSTORE_PARTIAL_STR(size, store_size)
+
+// Size == 1 (scalar)
+#define vstore_partial_1_1 vstore1
+// Size == 2
+#define vstore_partial_2_1 vstore_partial_1
+#define vstore_partial_2_2 vstore_partial_2
+// Size == 3
+#define vstore_partial_3_1 vstore_partial_1
+#define vstore_partial_3_2 vstore_partial_2
+#define vstore_partial_3_3 vstore_partial_3
+// Size == 4
+#define vstore_partial_4_1 vstore_partial_1
+#define vstore_partial_4_2 vstore_partial_2
+#define vstore_partial_4_3 vstore_partial_3
+#define vstore_partial_4_4 vstore_partial_4
+// Size == 8
+#define vstore_partial_8_1 vstore_partial_1
+#define vstore_partial_8_2 vstore_partial_2
+#define vstore_partial_8_3 vstore_partial_3
+#define vstore_partial_8_4 vstore_partial_4
+#define vstore_partial_8_5 vstore_partial_5
+#define vstore_partial_8_6 vstore_partial_6
+#define vstore_partial_8_7 vstore_partial_7
+#define vstore_partial_8_8 vstore_partial_8
+// Size == 16
+#define vstore_partial_16_1 vstore_partial_1
+#define vstore_partial_16_2 vstore_partial_2
+#define vstore_partial_16_3 vstore_partial_3
+#define vstore_partial_16_4 vstore_partial_4
+#define vstore_partial_16_5 vstore_partial_5
+#define vstore_partial_16_6 vstore_partial_6
+#define vstore_partial_16_7 vstore_partial_7
+#define vstore_partial_16_8 vstore_partial_8
+#define vstore_partial_16_9 vstore_partial_9
+#define vstore_partial_16_10 vstore_partial_10
+#define vstore_partial_16_11 vstore_partial_11
+#define vstore_partial_16_12 vstore_partial_12
+#define vstore_partial_16_13 vstore_partial_13
+#define vstore_partial_16_14 vstore_partial_14
+#define vstore_partial_16_15 vstore_partial_15
+#define vstore_partial_16_16 vstore_partial_16
+
+/** Partial vstore. Store the **lower** 0 to (n-1)th elements of the given vector while minimising the amount of vstore ops
+ * @name vstore_partial_n
+ *
+ * @note @p DATA needs to be a vector not a scalar
+ * @note n needs to be <= the vector width of the input variable @p DATA
+ * eg 1: Valid
+ * vstore_partial_15(var:float16, 0, 0xabcd);
+ * eg 2: Invalid
+ * vstore_partial_7(var:float4, 0, 0xabcd);
+ *
+ * @note in cases n == 1, 2, 3, 4, 8, 16, no extra vstore is invoked, thus there's no performance penalty.
+ *
+ * @param[in] DATA   The name of the variable
+ * @param[in] OFFSET Offset in n
+ * @param[in] PTR    The base pointer
+ * @{
+ */
+#define vstore_partial_1(DATA, OFFSET, PTR) \
+    vstore1(DATA.s0, OFFSET, PTR);
+
+#define vstore_partial_2(DATA, OFFSET, PTR) \
+    vstore2(DATA.s01, OFFSET, PTR);
+
+#define vstore_partial_3(DATA, OFFSET, PTR) \
+    vstore3(DATA.s012, OFFSET, PTR);
+
+#define vstore_partial_4(DATA, OFFSET, PTR) \
+    vstore4(DATA.s0123, OFFSET, PTR);
+
+#define vstore_partial_5(DATA, OFFSET, PTR)    \
+    vstore_partial_4(DATA.s0123, OFFSET, PTR); \
+    vstore1(DATA.s4, OFFSET, PTR + 4);
+
+#define vstore_partial_6(DATA, OFFSET, PTR)    \
+    vstore_partial_4(DATA.s0123, OFFSET, PTR); \
+    vstore_partial_2(DATA.s45, OFFSET, PTR + 4);
+
+#define vstore_partial_7(DATA, OFFSET, PTR)    \
+    vstore_partial_4(DATA.s0123, OFFSET, PTR); \
+    vstore_partial_3(DATA.s456, OFFSET, PTR + 4);
+
+#define vstore_partial_8(DATA, OFFSET, PTR) \
+    vstore8(DATA.s01234567, OFFSET, PTR);
+
+#define vstore_partial_9(DATA, OFFSET, PTR)        \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore1(DATA.s8, OFFSET, PTR + 8);
+
+#define vstore_partial_10(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_2(DATA.s89, OFFSET, PTR + 8);
+
+#define vstore_partial_11(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_3(DATA.s89a, OFFSET, PTR + 8);
+
+#define vstore_partial_12(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_4(DATA.s89ab, OFFSET, PTR + 8);
+
+#define vstore_partial_13(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_5(DATA.s89abc, OFFSET, PTR + 8);
+
+#define vstore_partial_14(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_6(DATA.s89abcd, OFFSET, PTR + 8);
+
+#define vstore_partial_15(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_7(DATA.s89abcde, OFFSET, PTR + 8);
+
+#define vstore_partial_16(DATA, OFFSET, PTR) \
+    vstore16(DATA, OFFSET, PTR);
+/** @} */ // end of groupd vstore_partial_n
+/** @} */ // end of groupd VSTORE_PARTIAL
 
 // Convert built-in functions with _sat modifier are not supported in floating point so we create defines
 // without _sat to overcome this issue
@@ -361,6 +540,10 @@ R"(
 
 #define CONVERT_TO_TENSOR4D_STRUCT_NO_STEP(name, mod_size) \
     update_tensor4D_workitem_ptr(name##_ptr, name##_offset_first_element_in_bytes, name##_stride_x, 0, name##_stride_y, 0, name##_stride_z, 0, name##_stride_w, 0, mod_size)
+
+#define CONVERT_TO_TENSOR3D_STRUCT_NO_UPDATE_PTR(name)                                                                                       \
+    tensor3D_ptr_no_update(name##_ptr, name##_offset_first_element_in_bytes, name##_stride_x, name##_step_x, name##_stride_y, name##_step_y, \
+                           name##_stride_z, name##_step_z)
 
 /** Structure to hold Vector information */
 typedef struct Vector
@@ -498,6 +681,32 @@ inline Tensor3D update_tensor3D_workitem_ptr(__global uchar *ptr, uint offset_fi
     return tensor;
 }
 
+/** Wrap 3D tensor information into an tensor structure.
+ *
+ * @param[in] ptr                           Pointer to the starting postion of the buffer
+ * @param[in] offset_first_element_in_bytes The offset of the first element in the source image
+ * @param[in] stride_x                      Stride of the image in X dimension (in bytes)
+ * @param[in] step_x                        stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in] stride_y                      Stride of the image in Y dimension (in bytes)
+ * @param[in] step_y                        stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in] stride_z                      Stride of the image in Z dimension (in bytes)
+ * @param[in] step_z                        stride_z * number of elements along Z processed per workitem(in bytes)
+ *
+ * @return A 3D tensor object
+ */
+inline Tensor3D tensor3D_ptr_no_update(__global uchar *ptr, uint offset_first_element_in_bytes, uint stride_x, uint step_x, uint stride_y, uint step_y, uint stride_z, uint step_z)
+{
+    Tensor3D tensor =
+    {
+        .ptr                           = ptr,
+        .offset_first_element_in_bytes = offset_first_element_in_bytes,
+        .stride_x                      = stride_x,
+        .stride_y                      = stride_y,
+        .stride_z                      = stride_z
+    };
+    return tensor;
+}
+
 inline Tensor4D update_tensor4D_workitem_ptr(__global uchar *ptr, uint offset_first_element_in_bytes, uint stride_x, uint step_x, uint stride_y, uint step_y, uint stride_z, uint step_z, uint stride_w,
                                              uint step_w,
                                              uint mod_size)
@@ -562,6 +771,31 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
     return tensor->ptr + x * tensor->stride_x + y * tensor->stride_y + z * tensor->stride_z + w * tensor->stride_w;
 }
 
+/** Get the offset for a given linear index of a Tensor3D
+ *
+ * @param[in] tensor Pointer to the starting position of the buffer
+ * @param[in] width  Width of the input tensor
+ * @param[in] height Height of the input tensor
+ * @param[in] depth  Depth of the input tensor
+ * @param[in] index  Linear index
+ */
+inline __global const uchar *tensor3D_index2ptr(const Tensor3D *tensor, uint width, uint height, uint depth, uint index)
+{
+    uint num_elements = width * height;
+
+    const uint z = index / num_elements;
+
+    index %= num_elements;
+
+    const uint y = index / width;
+
+    index %= width;
+
+    const uint x = index;
+
+    return tensor->ptr + x * tensor->stride_x + y * tensor->stride_y + z * tensor->stride_z + tensor->offset_first_element_in_bytes;
+}
+
 #endif // _HELPER_H
 
 #if defined(DATA_TYPE) && defined(ELEMENT_SIZE)
@@ -586,7 +820,7 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
  * @note In case biases will be added to the convolution -DHAS_BIAS has to be passed to append the final matrix with 1 in each row.
  * @note In case grouping is performed, the number of groups must be passed at compile time using -DNUM_GROUPS: e.g. -DNUM_GROUPS=4
  *
- * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8/F16/F32
+ * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8_SIGNED/QASYMM8/F16/F32
  * @param[in]  src_stride_x                      Stride of the source tensor in X dimension (in bytes)
  * @param[in]  src_step_x                        src_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in]  src_stride_y                      Stride of the source tensor in Y dimension (in bytes)
@@ -693,7 +927,7 @@ __kernel void im2col1x1_stridex1_nchw(
  * @note In case biases will be added to the convolution -DHAS_BIAS has to be passed to append the final matrix with 1 in each row.
  * @note In case grouping is performed, the number of groups must be passed at compile time using -DNUM_GROUPS: e.g. -DNUM_GROUPS=4
  *
- * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8/F16/F32
+ * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8_SIGNED/QASYMM8/F16/F32
  * @param[in]  src_stride_x                      Stride of the source tensor in X dimension (in bytes)
  * @param[in]  src_step_x                        src_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in]  src_stride_y                      Stride of the source tensor in Y dimension (in bytes)
@@ -793,7 +1027,7 @@ __kernel void im2col_generic_nchw(
  * @note The stride along the X and Y directions must be passed at compile time using -DSTRIDE_X and -DSTRIDE_Y: e.g. -DSTRIDE_X=1 and -DSTRIDE_Y=1
  * @note In case biases will be added to the convolution -DHAS_BIAS has to be passed to append the final matrix with 1 in each row.
  *
- * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8/F16/F32
+ * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8_SIGNED/QASYMM8/F16/F32
  * @param[in]  src_stride_x                      Stride of the source tensor in X dimension (in bytes)
  * @param[in]  src_step_x                        src_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in]  src_stride_y                      Stride of the source tensor in Y dimension (in bytes)
@@ -899,7 +1133,7 @@ __kernel void im2col3x3_nchw(
  * @note In case biases will be added to the convolution -DHAS_BIAS has to be passed to append the final matrix with 1 in each row.
  * @note In case grouping is performed, the number of groups must be passed at compile time using -DNUM_GROUPS: e.g. -DNUM_GROUPS=4
  *
- * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8/F16/F32
+ * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8_SIGNED/QASYMM8/F16/F32
  * @param[in]  src_stride_x                      Stride of the source tensor in X dimension (in bytes)
  * @param[in]  src_step_x                        src_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in]  src_stride_y                      Stride of the source tensor in Y dimension (in bytes)
@@ -1091,7 +1325,7 @@ __kernel void im2col5x5_nchw(
  * @note In case biases will be added to the convolution -DHAS_BIAS has to be passed to append the final matrix with 1 in each row.
  * @note In case grouping is performed, the number of groups must be passed at compile time using -DNUM_GROUPS: e.g. -DNUM_GROUPS=4
  *
- * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8/F16/F32
+ * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8_SIGNED/QASYMM8/F16/F32
  * @param[in]  src_stride_x                      Stride of the source tensor in X dimension (in bytes)
  * @param[in]  src_step_x                        src_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in]  src_stride_y                      Stride of the source tensor in Y dimension (in bytes)
@@ -1311,7 +1545,7 @@ __kernel void im2col11x11_padx0_pady0_nchw(
  * @note In case biases will be added to the convolution -DHAS_BIAS has to be passed to append the final matrix with 1 in each row.
  * @note In case grouping is performed, the number of groups must be passed at compile time using -DNUM_GROUPS: e.g. -DNUM_GROUPS=4
  *
- * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: F16/F32
+ * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8_SIGNED/QASYMM8/F16/F32
  * @param[in]  src_stride_x                      Stride of the source tensor in X dimension (in bytes)
  * @param[in]  src_step_x                        src_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in]  src_stride_y                      Stride of the source tensor in Y dimension (in bytes)
@@ -1403,20 +1637,95 @@ __kernel void im2col_generic_padx0_pady0_nchw(
 }
 #endif //defined(CONVOLVED_WIDTH) && defined(STRIDE_X) && defined(STRIDE_Y) && defined(PAD_LEFT) && defined(PAD_TOP) && defined(PAD_RIGHT) && defined(PAD_BOTTOM) && defined(KERNEL_WIDTH) && defined(KERNEL_HEIGHT) && defined(SRC_DEPTH) && defined(SRC_WIDTH) && defined(SRC_HEIGHT) && defined(VECTOR_SIZE) && defined(WIDTH_MOD_VECTOR_SIZE)
 
-#if defined(CONVOLVED_WIDTH) && defined(SRC_WIDTH) && defined(SRC_HEIGHT) && defined(STRIDE_X) && defined(STRIDE_Y) && defined(KERNEL_WIDTH) && defined(KERNEL_HEIGHT) && defined(SRC_DEPTH) && defined(PAD_LEFT) && defined(PAD_RIGHT) && defined(PAD_TOP) && defined(PAD_BOTTOM) && defined(PAD_VALUE) && defined(VECTOR_SIZE) && defined(LAST_ACCESSED)
+#if defined(CONVOLVED_WIDTH) && defined(SRC_WIDTH) && defined(SRC_HEIGHT) && defined(STRIDE_X) && defined(STRIDE_Y) && defined(KERNEL_WIDTH) && defined(KERNEL_HEIGHT) && defined(SRC_DEPTH) && defined(PAD_LEFT) && defined(PAD_RIGHT) && defined(PAD_TOP) && defined(PAD_BOTTOM) && defined(PAD_VALUE) && defined(VECTOR_SIZE) && defined(BOUNDARY_VECTOR_SIZE)
 
 #define VECTOR_N VEC_DATA_TYPE(DATA_TYPE, VECTOR_SIZE)
+#define COND_N VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE)
+
+/** Store a 1x9 row or a 3x3 block in a boundary-aware manner to avoid paddings in the channel dimension
+ *  @name IM2COL1X9_NHWC_STORE
+ *
+ *  @note To use this macro for a 3x3 block, @p ROW has to be 0
+ *
+ * @param[in] VECTOR_SIZE          The non-boundary vector width of @p DATA. Supported: 1(scalar), 2, 3, 4, 8, 16
+ * @param[in] BOUNDARY_VECTOR_SIZE The boundary vector width of @p DATA. Supported: 1-16, but has to be <= @p size
+ * @param[in] DATA_TYPE            Data type of @p DATA
+ * @param[in] SRC_DEPTH            Input channel size / depth
+ * @param[in] DATA                 Value variable base name
+ * @param[in] ROW                  The row number to store. Supported: 0-8
+ * @param[in] OUTPUT_PTR           Output pointer
+ * @{
+ */
+#if defined(VECTOR_SIZE) && defined(BOUNDARY_VECTOR_SIZE) && BOUNDARY_VECTOR_SIZE < VECTOR_SIZE
+#define IM2COL1X9_NHWC_STORE(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE, DATA_TYPE, SRC_DEPTH, DATA, ROW, OUTPUT_PTR)         \
+    const bool at_channel_boundary = get_global_id(0) == 0;                                                          \
+    if(at_channel_boundary)                                                                                          \
+    {                                                                                                                \
+        IM2COL1X9_NHWC_STORE_PARTIAL(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE, DATA_TYPE, SRC_DEPTH, DATA, ROW, OUTPUT_PTR) \
+    }                                                                                                                \
+    else                                                                                                             \
+    {                                                                                                                \
+        IM2COL1X9_NHWC_STORE_NONPARTIAL(VECTOR_SIZE, DATA_TYPE, SRC_DEPTH, DATA, ROW, OUTPUT_PTR)                    \
+    }
+#else // defined(VECTOR_SIZE) && defined(BOUNDARY_VECTOR_SIZE) && BOUNDARY_VECTOR_SIZE < VECTOR_SIZE
+#define IM2COL1X9_NHWC_STORE(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE, DATA_TYPE, SRC_DEPTH, DATA, ROW, OUTPUT_PTR) \
+    IM2COL1X9_NHWC_STORE_NONPARTIAL(VECTOR_SIZE, DATA_TYPE, SRC_DEPTH, DATA, ROW, OUTPUT_PTR)
+#endif // defined(VECTOR_SIZE) && defined(BOUNDARY_VECTOR_SIZE) && BOUNDARY_VECTOR_SIZE < VECTOR_SIZE
+
+#define IM2COL1X9_NHWC_STORE_NONPARTIAL(VECTOR_SIZE, DATA_TYPE, SRC_DEPTH, DATA, ROW, OUTPUT_PTR) \
+    VSTORE(VECTOR_SIZE)                                                                           \
+    (DATA##0, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (0 + ROW * 9) * SRC_DEPTH);                 \
+    VSTORE(VECTOR_SIZE)                                                                           \
+    (DATA##1, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (1 + ROW * 9) * SRC_DEPTH);                 \
+    VSTORE(VECTOR_SIZE)                                                                           \
+    (DATA##2, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (2 + ROW * 9) * SRC_DEPTH);                 \
+    VSTORE(VECTOR_SIZE)                                                                           \
+    (DATA##3, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (3 + ROW * 9) * SRC_DEPTH);                 \
+    VSTORE(VECTOR_SIZE)                                                                           \
+    (DATA##4, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (4 + ROW * 9) * SRC_DEPTH);                 \
+    VSTORE(VECTOR_SIZE)                                                                           \
+    (DATA##5, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (5 + ROW * 9) * SRC_DEPTH);                 \
+    VSTORE(VECTOR_SIZE)                                                                           \
+    (DATA##6, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (6 + ROW * 9) * SRC_DEPTH);                 \
+    VSTORE(VECTOR_SIZE)                                                                           \
+    (DATA##7, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (7 + ROW * 9) * SRC_DEPTH);                 \
+    VSTORE(VECTOR_SIZE)                                                                           \
+    (DATA##8, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (8 + ROW * 9) * SRC_DEPTH);
+
+#define IM2COL1X9_NHWC_STORE_PARTIAL(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE, DATA_TYPE, SRC_DEPTH, DATA, ROW, OUTPUT_PTR) \
+    VSTORE_PARTIAL(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE)                                                                \
+    (DATA##0, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (0 + ROW * 9) * SRC_DEPTH);                                    \
+    VSTORE_PARTIAL(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE)                                                                \
+    (DATA##1, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (1 + ROW * 9) * SRC_DEPTH);                                    \
+    VSTORE_PARTIAL(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE)                                                                \
+    (DATA##2, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (2 + ROW * 9) * SRC_DEPTH);                                    \
+    VSTORE_PARTIAL(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE)                                                                \
+    (DATA##3, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (3 + ROW * 9) * SRC_DEPTH);                                    \
+    VSTORE_PARTIAL(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE)                                                                \
+    (DATA##4, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (4 + ROW * 9) * SRC_DEPTH);                                    \
+    VSTORE_PARTIAL(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE)                                                                \
+    (DATA##5, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (5 + ROW * 9) * SRC_DEPTH);                                    \
+    VSTORE_PARTIAL(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE)                                                                \
+    (DATA##6, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (6 + ROW * 9) * SRC_DEPTH);                                    \
+    VSTORE_PARTIAL(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE)                                                                \
+    (DATA##7, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (7 + ROW * 9) * SRC_DEPTH);                                    \
+    VSTORE_PARTIAL(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE)                                                                \
+    (DATA##8, 0, (__global DATA_TYPE *)(OUTPUT_PTR) + (8 + ROW * 9) * SRC_DEPTH);
+/** @}*/
 
 /** This kernel performs im2col when the kernel size is 3x3 and the data layout is NHWC
  *
  * @note This kernel computes VECTOR_SIZE elements
+ * @note This kernel stores VECTOR_SIZE or BOUNDARY_VECTOR_SIZE (if at boundary) elements
+ * @note The vector size must be passed at compile time using -DVECTOR_SIZE: e.g. -DVECTOR_SIZE=2
+ * @note The boundary vector size must be passed at compile time using -DBOUNDARY_VECTOR_SIZE: e.g. -DBOUNDARY_VECTOR_SIZE=1
  * @note The data type must be passed at compile time using -DDATA_TYPE: e.g. -DDATA_TYPE=float
  * @note The width of output tensor after matrix multiplication must be passed at compile time using -DCONVOLVED_WIDTH: e.g. -DCONVOLVED_WIDTH=34
  * @note The kernel depth must be passed at compile time using -DSRC_DEPTH: e.g. -DSRC_DEPTH=3
  * @note The stride along the Y direction must be passed at compile time using -DSTRIDE_Y: e.g. -DSTRIDE_Y=1
  * @note In case biases will be added to the convolution -DHAS_BIAS has to be passed to append the final matrix with 1 in each row.
  *
- * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8/F16/F32
+ * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8_SIGNED/QASYMM8/F16/F32
  * @param[in]  src_stride_x                      Stride of the source tensor in X dimension (in bytes)
  * @param[in]  src_step_x                        src_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in]  src_stride_y                      Stride of the source tensor in Y dimension (in bytes)
@@ -1439,9 +1748,11 @@ __kernel void im2col3x3_nhwc(
     uint src_stride_w,
     uint dst_stride_w)
 {
-    const int ch    = min((int)(get_global_id(0) * VECTOR_SIZE), LAST_ACCESSED); // input feature map
-    const int yo    = get_global_id(1);
-    const int batch = get_global_id(2); // batch size
+    // input feature map, boundary-corrected (shift all non-boundary vectors by shift_amount) to avoid padding
+    const int shift_amount = (int)VECTOR_SIZE - (int)BOUNDARY_VECTOR_SIZE;
+    const int ch           = max((int)(get_global_id(0) * VECTOR_SIZE) - shift_amount, 0);
+    const int yo           = get_global_id(1);
+    const int batch        = get_global_id(2); // batch size
 
     // Calculate input indices
     const int xi = (get_global_id(1) % CONVOLVED_WIDTH) * STRIDE_X;
@@ -1456,10 +1767,11 @@ __kernel void im2col3x3_nhwc(
 
     // Clamp xi
     int3 xi_offset = ((int3)xi + (int3)(0, 1, 2) * DILATION_X - (int3)PAD_LEFT);
-#if PAD_TOP != 0 || PAD_BOTTOM != 0
+#if PAD_LEFT != 0 || PAD_RIGHT != 0
 #define CLAMP(x, min_val, max_val) min(max(x, min_val), max_val)
     xi_offset = CLAMP(xi_offset, (int3)0, (int3)(SRC_WIDTH - 1));
-#endif // PAD_TOP != 0 || PAD_BOTTOM != 0
+#endif // PAD_LEFT != 0 || PAD_RIGHT != 0
+    // Multiply by src_stride_y as the width (X) dimension here is the second (y) dimension in src NHWC tensor
     xi_offset *= (int3)src_stride_y;
 
     // Out-of-bound condition for X
@@ -1469,6 +1781,9 @@ __kernel void im2col3x3_nhwc(
     // Clamp yi
     // yi_coord is casted to unsigned int in order to use just a min() operation
     // A "-1" 32 bit signed variable converted to unsigned gives 4294967295
+    // This is a trick so that the values loaded in the padding areas are always from the last row (SRC_HEIGHT - 1),
+    // because of the negative yi_coord wrap-around, but it gets overwritten by PAD_VALUE immediately as the wrap-around
+    // also causes y_cond (y padding condition) to be satisfied
     yi_coord = yi - (int)PAD_TOP;
 
     // Clamp only if PAD_TOP or PAD_BOTTOM is not equal to 0
@@ -1487,9 +1802,9 @@ __kernel void im2col3x3_nhwc(
 #if PAD_TOP != 0 || PAD_LEFT != 0 || PAD_BOTTOM != 0 || PAD_RIGHT != 0
     // Replace invalid values with PAD_VALUE
     int y_cond = (int)((uint)(yi - (int)PAD_TOP) >= (uint)(SRC_HEIGHT));
-    values0    = select(values0, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond.s0));
-    values1    = select(values1, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond.s1));
-    values2    = select(values2, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond.s2));
+    values0    = select(values0, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond.s0)));
+    values1    = select(values1, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond.s1)));
+    values2    = select(values2, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond.s2)));
 #endif // PAD_TOP != 0 || PAD_LEFT != 0 || PAD_BOTTOM != 0 || PAD_RIGHT != 0
 
     // yi == 1
@@ -1512,9 +1827,9 @@ __kernel void im2col3x3_nhwc(
 #if PAD_TOP != 0 || PAD_LEFT != 0 || PAD_BOTTOM != 0 || PAD_RIGHT != 0
     // Replace invalid values with zeros
     y_cond  = (int)((uint)(yi - (int)PAD_TOP + 1 * DILATION_Y) >= (uint)(SRC_HEIGHT));
-    values3 = select(values3, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond.s0));
-    values4 = select(values4, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond.s1));
-    values5 = select(values5, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond.s2));
+    values3 = select(values3, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond.s0)));
+    values4 = select(values4, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond.s1)));
+    values5 = select(values5, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond.s2)));
 #endif // PAD_TOP != 0 || PAD_LEFT != 0 || PAD_BOTTOM != 0 || PAD_RIGHT != 0
 
     // yi == 2
@@ -1537,32 +1852,20 @@ __kernel void im2col3x3_nhwc(
 #if PAD_TOP != 0 || PAD_LEFT != 0 || PAD_BOTTOM != 0 || PAD_RIGHT != 0
     // Replace invalid values with PAD_VALUE
     y_cond  = (int)((uint)(yi - (int)PAD_TOP + 2 * DILATION_Y) >= (uint)(SRC_HEIGHT));
-    values6 = select(values6, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond.s0));
-    values7 = select(values7, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond.s1));
-    values8 = select(values8, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond.s2));
+    values6 = select(values6, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond.s0)));
+    values7 = select(values7, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond.s1)));
+    values8 = select(values8, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond.s2)));
 #endif // PAD_TOP != 0 || PAD_LEFT != 0 || PAD_BOTTOM != 0 || PAD_RIGHT != 0
 
-    // Store
-    VSTORE(VECTOR_SIZE)
-    (values0, 0, (__global DATA_TYPE *)(output_ptr) + 0 * SRC_DEPTH);
-    VSTORE(VECTOR_SIZE)
-    (values1, 0, (__global DATA_TYPE *)(output_ptr) + 1 * SRC_DEPTH);
-    VSTORE(VECTOR_SIZE)
-    (values2, 0, (__global DATA_TYPE *)(output_ptr) + 2 * SRC_DEPTH);
-    VSTORE(VECTOR_SIZE)
-    (values3, 0, (__global DATA_TYPE *)(output_ptr) + 3 * SRC_DEPTH);
-    VSTORE(VECTOR_SIZE)
-    (values4, 0, (__global DATA_TYPE *)(output_ptr) + 4 * SRC_DEPTH);
-    VSTORE(VECTOR_SIZE)
-    (values5, 0, (__global DATA_TYPE *)(output_ptr) + 5 * SRC_DEPTH);
-    VSTORE(VECTOR_SIZE)
-    (values6, 0, (__global DATA_TYPE *)(output_ptr) + 6 * SRC_DEPTH);
-    VSTORE(VECTOR_SIZE)
-    (values7, 0, (__global DATA_TYPE *)(output_ptr) + 7 * SRC_DEPTH);
-    VSTORE(VECTOR_SIZE)
-    (values8, 0, (__global DATA_TYPE *)(output_ptr) + 8 * SRC_DEPTH);
+    // Store in a boundary-aware way to avoid padding
+    IM2COL1X9_NHWC_STORE(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE, DATA_TYPE, SRC_DEPTH, values, 0, output_ptr)
 
 #ifdef HAS_BIAS
+    // We can use VECTOR_SIZE instead of BOUNDARY_VECTOR_SIZE even if it's at the boundary. This is because the bias is
+    // added at the end of the channel, while the boundary vec is at the beginning of the channel.
+    // The only case where the boundary vec is at the end of the channel is when there's only a single boundary vec in
+    // the whole channel dimension, but in that case VECTOR_SIZE is also equal to BOUNDARY_VECTOR_SIZE
+    // See the value of num_elems_processed_per_iteration in configure_opencl_kernel method in CLIm2ColKernel.cpp
     if((ch + VECTOR_SIZE) >= SRC_DEPTH)
     {
         *((__global DATA_TYPE *)(output_ptr) - ch + SRC_DEPTH * 9) = 1.0f;
@@ -1571,104 +1874,73 @@ __kernel void im2col3x3_nhwc(
 }
 
 #if PAD_TOP != 0 || PAD_LEFT != 0 || PAD_BOTTOM != 0 || PAD_RIGHT != 0
-#define IM2COL1x9(i)                                                                                                                                                       \
-    ({                                                                                                                                                                     \
-        yi_coord = yi - (int)PAD_TOP + i * DILATION_Y;                                                                                                                     \
-        yi_coord = min((uint)yi_coord, (uint)(SRC_HEIGHT - 1));                                                                                                            \
+#define IM2COL1x9(i)                                                                                         \
+    ({                                                                                                       \
+        yi_coord = yi - (int)PAD_TOP + i * DILATION_Y;                                                       \
+        yi_coord = min((uint)yi_coord, (uint)(SRC_HEIGHT - 1));                                              \
         \
-        offset0 = xi_offset0 + (yi_coord * (int)src_stride_z);                                                                                                             \
-        offset1 = xi_offset1 + (yi_coord * (int)src_stride_z);                                                                                                             \
+        offset0 = xi_offset0 + (yi_coord * (int)src_stride_z);                                               \
+        offset1 = xi_offset1 + (yi_coord * (int)src_stride_z);                                               \
         \
-        VECTOR_N values0 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s0));                                                                          \
-        VECTOR_N values1 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s1));                                                                          \
-        VECTOR_N values2 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s2));                                                                          \
-        VECTOR_N values3 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s3));                                                                          \
-        VECTOR_N values4 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s4));                                                                          \
-        VECTOR_N values5 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s5));                                                                          \
-        VECTOR_N values6 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s6));                                                                          \
-        VECTOR_N values7 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s7));                                                                          \
-        VECTOR_N values8 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset1));                                                                             \
+        VECTOR_N values0 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s0));            \
+        VECTOR_N values1 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s1));            \
+        VECTOR_N values2 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s2));            \
+        VECTOR_N values3 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s3));            \
+        VECTOR_N values4 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s4));            \
+        VECTOR_N values5 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s5));            \
+        VECTOR_N values6 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s6));            \
+        VECTOR_N values7 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s7));            \
+        VECTOR_N values8 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset1));               \
         \
-        int y_cond = (int)((uint)(yi - (int)PAD_TOP + i * DILATION_Y) >= (uint)(SRC_HEIGHT));                                                                              \
-        values0    = select(values0, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond0.s0)); \
-        values1    = select(values1, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond0.s1)); \
-        values2    = select(values2, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond0.s2)); \
-        values3    = select(values3, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond0.s3)); \
-        values4    = select(values4, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond0.s4)); \
-        values5    = select(values5, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond0.s5)); \
-        values6    = select(values6, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond0.s6)); \
-        values7    = select(values7, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond0.s7)); \
-        values8    = select(values8, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))y_cond || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(x_cond1));    \
+        int y_cond = (int)((uint)(yi - (int)PAD_TOP + i * DILATION_Y) >= (uint)(SRC_HEIGHT));                \
+        values0    = select(values0, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond0.s0))); \
+        values1    = select(values1, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond0.s1))); \
+        values2    = select(values2, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond0.s2))); \
+        values3    = select(values3, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond0.s3))); \
+        values4    = select(values4, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond0.s4))); \
+        values5    = select(values5, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond0.s5))); \
+        values6    = select(values6, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond0.s6))); \
+        values7    = select(values7, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond0.s7))); \
+        values8    = select(values8, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)y_cond || (COND_N)(x_cond1)));    \
         \
-        VSTORE(VECTOR_SIZE)                                                                                                                                                \
-        (values0, 0, (__global DATA_TYPE *)(output_ptr) + (0 + i * 9) * SRC_DEPTH);                                                                                        \
-        VSTORE(VECTOR_SIZE)                                                                                                                                                \
-        (values1, 0, (__global DATA_TYPE *)(output_ptr) + (1 + i * 9) * SRC_DEPTH);                                                                                        \
-        VSTORE(VECTOR_SIZE)                                                                                                                                                \
-        (values2, 0, (__global DATA_TYPE *)(output_ptr) + (2 + i * 9) * SRC_DEPTH);                                                                                        \
-        VSTORE(VECTOR_SIZE)                                                                                                                                                \
-        (values3, 0, (__global DATA_TYPE *)(output_ptr) + (3 + i * 9) * SRC_DEPTH);                                                                                        \
-        VSTORE(VECTOR_SIZE)                                                                                                                                                \
-        (values4, 0, (__global DATA_TYPE *)(output_ptr) + (4 + i * 9) * SRC_DEPTH);                                                                                        \
-        VSTORE(VECTOR_SIZE)                                                                                                                                                \
-        (values5, 0, (__global DATA_TYPE *)(output_ptr) + (5 + i * 9) * SRC_DEPTH);                                                                                        \
-        VSTORE(VECTOR_SIZE)                                                                                                                                                \
-        (values6, 0, (__global DATA_TYPE *)(output_ptr) + (6 + i * 9) * SRC_DEPTH);                                                                                        \
-        VSTORE(VECTOR_SIZE)                                                                                                                                                \
-        (values7, 0, (__global DATA_TYPE *)(output_ptr) + (7 + i * 9) * SRC_DEPTH);                                                                                        \
-        VSTORE(VECTOR_SIZE)                                                                                                                                                \
-        (values8, 0, (__global DATA_TYPE *)(output_ptr) + (8 + i * 9) * SRC_DEPTH);                                                                                        \
+        IM2COL1X9_NHWC_STORE(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE, DATA_TYPE, SRC_DEPTH, values, i, output_ptr) \
     })
 #else // PAD_TOP != 0 || PAD_LEFT != 0 || PAD_BOTTOM != 0 || PAD_RIGHT != 0
-#define IM2COL1x9(i)                                                                              \
-    ({                                                                                            \
-        yi_coord = yi - (int)PAD_TOP + i * DILATION_Y;                                            \
-        yi_coord = min((uint)yi_coord, (uint)(SRC_HEIGHT - 1));                                   \
+#define IM2COL1x9(i)                                                                                         \
+    ({                                                                                                       \
+        yi_coord = yi - (int)PAD_TOP + i * DILATION_Y;                                                       \
+        yi_coord = min((uint)yi_coord, (uint)(SRC_HEIGHT - 1));                                              \
         \
-        offset0 = xi_offset0 + (yi_coord * (int)src_stride_z);                                    \
-        offset1 = xi_offset1 + (yi_coord * (int)src_stride_z);                                    \
+        offset0 = xi_offset0 + (yi_coord * (int)src_stride_z);                                               \
+        offset1 = xi_offset1 + (yi_coord * (int)src_stride_z);                                               \
         \
-        VECTOR_N values0 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s0)); \
-        VECTOR_N values1 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s1)); \
-        VECTOR_N values2 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s2)); \
-        VECTOR_N values3 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s3)); \
-        VECTOR_N values4 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s4)); \
-        VECTOR_N values5 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s5)); \
-        VECTOR_N values6 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s6)); \
-        VECTOR_N values7 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s7)); \
-        VECTOR_N values8 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset1));    \
+        VECTOR_N values0 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s0));            \
+        VECTOR_N values1 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s1));            \
+        VECTOR_N values2 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s2));            \
+        VECTOR_N values3 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s3));            \
+        VECTOR_N values4 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s4));            \
+        VECTOR_N values5 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s5));            \
+        VECTOR_N values6 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s6));            \
+        VECTOR_N values7 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset0.s7));            \
+        VECTOR_N values8 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset1));               \
         \
-        VSTORE(VECTOR_SIZE)                                                                       \
-        (values0, 0, (__global DATA_TYPE *)(output_ptr) + (0 + i * 9) * SRC_DEPTH);               \
-        VSTORE(VECTOR_SIZE)                                                                       \
-        (values1, 0, (__global DATA_TYPE *)(output_ptr) + (1 + i * 9) * SRC_DEPTH);               \
-        VSTORE(VECTOR_SIZE)                                                                       \
-        (values2, 0, (__global DATA_TYPE *)(output_ptr) + (2 + i * 9) * SRC_DEPTH);               \
-        VSTORE(VECTOR_SIZE)                                                                       \
-        (values3, 0, (__global DATA_TYPE *)(output_ptr) + (3 + i * 9) * SRC_DEPTH);               \
-        VSTORE(VECTOR_SIZE)                                                                       \
-        (values4, 0, (__global DATA_TYPE *)(output_ptr) + (4 + i * 9) * SRC_DEPTH);               \
-        VSTORE(VECTOR_SIZE)                                                                       \
-        (values5, 0, (__global DATA_TYPE *)(output_ptr) + (5 + i * 9) * SRC_DEPTH);               \
-        VSTORE(VECTOR_SIZE)                                                                       \
-        (values6, 0, (__global DATA_TYPE *)(output_ptr) + (6 + i * 9) * SRC_DEPTH);               \
-        VSTORE(VECTOR_SIZE)                                                                       \
-        (values7, 0, (__global DATA_TYPE *)(output_ptr) + (7 + i * 9) * SRC_DEPTH);               \
-        VSTORE(VECTOR_SIZE)                                                                       \
-        (values8, 0, (__global DATA_TYPE *)(output_ptr) + (8 + i * 9) * SRC_DEPTH);               \
+        IM2COL1X9_NHWC_STORE(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE, DATA_TYPE, SRC_DEPTH, values, i, output_ptr) \
     })
 #endif // PAD_TOP != 0 || PAD_LEFT != 0 || PAD_BOTTOM != 0 || PAD_RIGHT != 0
 
 /** This kernel performs im2col when the kernel size is 9x9 and the data layout is NHWC
  *
  * @note This kernel computes VECTOR_SIZE elements
+ * @note This kernel stores VECTOR_SIZE or BOUNDARY_VECTOR_SIZE (if at boundary) elements
+ * @note The vector size must be passed at compile time using -DVECTOR_SIZE: e.g. -DVECTOR_SIZE=2
+ * @note The boundary vector size must be passed at compile time using -DBOUNDARY_VECTOR_SIZE: e.g. -DBOUNDARY_VECTOR_SIZE=1
  * @note The data type must be passed at compile time using -DDATA_TYPE: e.g. -DDATA_TYPE=float
  * @note The width of output tensor after matrix multiplication must be passed at compile time using -DCONVOLVED_WIDTH: e.g. -DCONVOLVED_WIDTH=34
  * @note The kernel depth must be passed at compile time using -DSRC_DEPTH: e.g. -DSRC_DEPTH=3
  * @note The stride along the Y direction must be passed at compile time using -DSTRIDE_Y: e.g. -DSTRIDE_Y=1
  * @note In case biases will be added to the convolution -DHAS_BIAS has to be passed to append the final matrix with 1 in each row.
  *
- * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8/F16/F32
+ * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8_SIGNED/QASYMM8/F16/F32
  * @param[in]  src_stride_x                      Stride of the source tensor in X dimension (in bytes)
  * @param[in]  src_step_x                        src_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in]  src_stride_y                      Stride of the source tensor in Y dimension (in bytes)
@@ -1691,9 +1963,11 @@ __kernel void im2col9x9_nhwc(
     uint src_stride_w,
     uint dst_stride_w)
 {
-    const int ch    = min((int)(get_global_id(0) * VECTOR_SIZE), LAST_ACCESSED); // input feature map
-    const int yo    = get_global_id(1);
-    const int batch = get_global_id(2); // batch size
+    // input feature map, boundary-corrected (shift all non-boundary vectors by shift_amount) to avoid padding
+    const int shift_amount = (int)VECTOR_SIZE - (int)BOUNDARY_VECTOR_SIZE;
+    const int ch           = max((int)(get_global_id(0) * VECTOR_SIZE) - shift_amount, 0);
+    const int yo           = get_global_id(1);
+    const int batch        = get_global_id(2); // batch size
 
     // Calculate input indices
     const int xi = (get_global_id(1) % CONVOLVED_WIDTH) * STRIDE_X;
@@ -1711,11 +1985,11 @@ __kernel void im2col9x9_nhwc(
     int8 xi_offset0 = ((int8)xi + (int8)(0, 1, 2, 3, 4, 5, 6, 7) * DILATION_X - (int8)PAD_LEFT);
     int  xi_offset1 = ((int)xi + (int)(8) * DILATION_X - (int)PAD_LEFT);
 
-#if PAD_TOP != 0 || PAD_BOTTOM != 0
+#if PAD_LEFT != 0 || PAD_RIGHT != 0
 #define CLAMP(x, min_val, max_val) min(max(x, min_val), max_val)
     xi_offset0 = CLAMP(xi_offset0, (int8)0, (int8)(SRC_WIDTH - 1));
     xi_offset1 = CLAMP(xi_offset1, (int)0, (int)(SRC_WIDTH - 1));
-#endif // PAD_TOP != 0 || PAD_BOTTOM != 0
+#endif // PAD_LEFT != 0 || PAD_RIGHT != 0
     xi_offset0 *= (int8)src_stride_y;
     xi_offset1 *= (int)src_stride_y;
 
@@ -1734,6 +2008,11 @@ __kernel void im2col9x9_nhwc(
     IM2COL1x9(8);
 
 #ifdef HAS_BIAS
+    // We can use VECTOR_SIZE instead of BOUNDARY_VECTOR_SIZE even if it's at the boundary. This is because the bias is
+    // added at the end of the channel, while the boundary vec is at the beginning of the channel.
+    // The only case where the boundary vec is at the end of the channel is when there's only a single boundary vec in
+    // the whole channel dimension, but in that case VECTOR_SIZE is also equal to BOUNDARY_VECTOR_SIZE
+    // See the value of num_elems_processed_per_iteration in configure_opencl_kernel method in CLIm2ColKernel.cpp
     if((ch + VECTOR_SIZE) >= SRC_DEPTH)
     {
         *((__global DATA_TYPE *)(output_ptr) - ch + SRC_DEPTH * 81) = 1.0f;
@@ -1743,6 +2022,10 @@ __kernel void im2col9x9_nhwc(
 
 /** This opencl kernel performs a generic im2col implementation when the data layout is NHWC
  *
+ * @note This kernel computes VECTOR_SIZE elements
+ * @note This kernel stores VECTOR_SIZE or BOUNDARY_VECTOR_SIZE (if at boundary) elements
+ * @note The vector size must be passed at compile time using -DVECTOR_SIZE: e.g. -DVECTOR_SIZE=2
+ * @note The boundary vector size must be passed at compile time using -DBOUNDARY_VECTOR_SIZE: e.g. -DBOUNDARY_VECTOR_SIZE=1
  * @note The data type must be passed at compile time using -DDATA_TYPE: e.g. -DDATA_TYPE=float
  * @note The width and height of the input tensor must be passed at compile time using -DSRC_WIDTH and -DSRC_HEIGHT: e.g. -DSRC_WIDTH=128 and -DSRC_HEIGHT=128
  * @note The width of output tensor after matrix multiplication must be passed at compile time using -DCONVOLVED_WIDTH: e.g. -DCONVOLVED_WIDTH=34
@@ -1753,7 +2036,7 @@ __kernel void im2col9x9_nhwc(
  * @note The dilation_x and dilation_y must be passed at compile time using -DDILATION_X and -DDILATION_Y: e.g. -DDILATION_X=1, -DDILATION_Y=1
  * @note In case biases will be added to the convolution -DHAS_BIAS has to be passed to append the final matrix with 1 in each row.
  *
- * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8/F16/F32
+ * @param[in]  src_ptr                           Pointer to the source tensor. Supported data types: QASYMM8_SIGNED/QASYMM8/F16/F32
  * @param[in]  src_stride_x                      Stride of the source tensor in X dimension (in bytes)
  * @param[in]  src_step_x                        src_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in]  src_stride_y                      Stride of the source tensor in Y dimension (in bytes)
@@ -1776,9 +2059,11 @@ __kernel void im2col_generic_nhwc(
     uint src_stride_w,
     uint dst_stride_w)
 {
-    const int ch    = min((int)(get_global_id(0) * VECTOR_SIZE), LAST_ACCESSED); // input feature map
-    const int yo    = get_global_id(1);
-    const int batch = get_global_id(2); // batch size
+    // input feature map, boundary-corrected (shift all non-boundary vectors by shift_amount) to avoid padding
+    const int shift_amount = (int)VECTOR_SIZE - (int)BOUNDARY_VECTOR_SIZE;
+    const int ch           = max((int)(get_global_id(0) * VECTOR_SIZE) - shift_amount, 0);
+    const int yo           = get_global_id(1);
+    const int batch        = get_global_id(2); // batch size
 
     // Calculate input indices
     const int xi = (get_global_id(1) % CONVOLVED_WIDTH) * STRIDE_X;
@@ -1811,25 +2096,42 @@ __kernel void im2col_generic_nhwc(
 
             VECTOR_N values0 = VLOAD(VECTOR_SIZE)(0, (__global DATA_TYPE *)(input_ptr + offset));
 
+#if PAD_LEFT != 0 || PAD_TOP != 0 || PAD_RIGHT != 0 || PAD_BOTTOM != 0
             // Replace with PAD_VALUE if the value is out-of-bound
-            values0 = select(values0, (VECTOR_N)PAD_VALUE, (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))x_border_condition || (VEC_DATA_TYPE(COND_DATA_TYPE, VECTOR_SIZE))(y_border_condition));
+            values0 = select(values0, (VECTOR_N)PAD_VALUE, (COND_N)((COND_N)x_border_condition || (COND_N)(y_border_condition)));
+#endif // PAD_LEFT != 0 || PAD_TOP != 0 || PAD_RIGHT != 0 || PAD_BOTTOM != 0
 
-            // Store
-            VSTORE(VECTOR_SIZE)
-            (values0, 0, (__global DATA_TYPE *)(output_ptr) + i * (int)SRC_DEPTH);
-
+            // Store in a boundary-aware way to avoid padding
+#if BOUNDARY_VECTOR_SIZE != VECTOR_SIZE
+            const bool at_channel_boundary = get_global_id(0) == 0;
+            if(at_channel_boundary)
+            {
+                VSTORE_PARTIAL(VECTOR_SIZE, BOUNDARY_VECTOR_SIZE)
+                (values0, 0, (__global DATA_TYPE *)(output_ptr) + i * (int)SRC_DEPTH);
+            }
+            else // at_channel_boundary
+#endif           // BOUNDARY_VECTOR_SIZE != VECTOR_SIZE
+            {
+                VSTORE(VECTOR_SIZE)
+                (values0, 0, (__global DATA_TYPE *)(output_ptr) + i * (int)SRC_DEPTH);
+            }
             i++;
         }
     }
 
 #ifdef HAS_BIAS
+    // We can use VECTOR_SIZE instead of BOUNDARY_VECTOR_SIZE even if it's at the boundary. This is because the bias is
+    // added at the end of the channel, while the boundary vec is at the beginning of the channel.
+    // The only case where the boundary vec is at the end of the channel is when there's only a single boundary vec in
+    // the whole channel dimension, but in that case VECTOR_SIZE is also equal to BOUNDARY_VECTOR_SIZE
+    // See the value of num_elems_processed_per_iteration in configure_opencl_kernel method in CLIm2ColKernel.cpp
     if((ch + VECTOR_SIZE) >= SRC_DEPTH)
     {
         *((__global DATA_TYPE *)(output_ptr) - ch + SRC_DEPTH * KERNEL_WIDTH * KERNEL_HEIGHT) = 1.0f;
     }
 #endif // HAS_BIAS
 }
-#endif // defined(CONVOLVED_WIDTH) && defined(SRC_WIDTH) && defined(SRC_HEIGHT) && defined(STRIDE_X) && defined(STRIDE_Y) && defined(KERNEL_WIDTH) && defined(KERNEL_HEIGHT) && defined(SRC_DEPTH) && defined(PAD_LEFT) && defined(PAD_RIGHT) && defined(PAD_TOP) && defined(PAD_BOTTOM) && defined(PAD_VALUE) && defined(VECTOR_SIZE) && defined(LAST_ACCESSED)
+#endif // defined(CONVOLVED_WIDTH) && defined(SRC_WIDTH) && defined(SRC_HEIGHT) && defined(STRIDE_X) && defined(STRIDE_Y) && defined(KERNEL_WIDTH) && defined(KERNEL_HEIGHT) && defined(SRC_DEPTH) && defined(PAD_LEFT) && defined(PAD_RIGHT) && defined(PAD_TOP) && defined(PAD_BOTTOM) && defined(PAD_VALUE) && defined(VECTOR_SIZE) && defined(BOUNDARY_VECTOR_SIZE)
 #endif // defined(DATA_TYPE) && defined(ELEMENT_SIZE)
 
 )"

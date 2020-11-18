@@ -1,7 +1,7 @@
 R"(
 
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,7 +24,7 @@ R"(
  * SOFTWARE.
  */
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -48,7 +48,7 @@ R"(
  */
 
 /*
- * Copyright (c) 2016-2020 ARM Limited.
+ * Copyright (c) 2016-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -243,6 +243,49 @@ R"(
 #define VLOAD_STR(size) vload##size
 #define VLOAD(size) VLOAD_STR(size)
 
+#define PIXEL_UNIT4 1
+#define PIXEL_UNIT8 2
+#define PIXEL_UNIT16 4
+
+/** Utility macro to convert a vector size in pixel unit.
+ *
+ * @name CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT
+ *
+ * @param[in] vec_size Vector size. Only 4,8 and 16 is supported
+ *
+ * @return The pixel unit (number of pixels)
+ * @{
+ */
+#define CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT_STR(vec_size) PIXEL_UNIT##vec_size
+#define CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT(vec_size) CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT_STR(vec_size)
+/** @} */ // end of group CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT
+
+#define read_image2d_floatx1(img, x_coord, y_coord) (float4)(read_imagef(img, (int2)(x_coord, y_coord)));
+#define read_image2d_floatx2(img, x_coord, y_coord) (float8)(read_imagef(img, (int2)(x_coord, y_coord)), read_imagef(img, (int2)(x_coord + 1, y_coord)));
+#define read_image2d_floatx4(img, x_coord, y_coord) (float16)(read_imagef(img, (int2)(x_coord, y_coord)), read_imagef(img, (int2)(x_coord + 1, y_coord)), read_imagef(img, (int2)(x_coord + 2, y_coord)), read_imagef(img, (int2)(x_coord + 3, y_coord)));
+
+#if defined(ARM_COMPUTE_OPENCL_FP16_ENABLED) && defined(cl_khr_fp16)
+#define read_image2d_halfx1(img, x_coord, y_coord) (half4)(read_imageh(img, (int2)(x_coord, y_coord)));
+#define read_image2d_halfx2(img, x_coord, y_coord) (half8)(read_imageh(img, (int2)(x_coord, y_coord)), read_imageh(img, (int2)(x_coord + 1, y_coord)));
+#define read_image2d_halfx4(img, x_coord, y_coord) (half16)(read_imageh(img, (int2)(x_coord, y_coord)), read_imageh(img, (int2)(x_coord + 1, y_coord)), read_imageh(img, (int2)(x_coord + 2, y_coord)), read_imageh(img, (int2)(x_coord + 3, y_coord)));
+#endif // defined(ARM_COMPUTE_OPENCL_FP16_ENABLED) && defined(cl_khr_fp16)
+
+/** Utility macro to read a 2D OpenCL image object.
+ *
+ * @note Coordinates are not normalized
+ *
+ * @param[in] data_type Data type
+ * @param[in] n0        Number of pixel to read. Only 1,2 and 4 is supported
+ * @param[in] img       OpenCL image object
+ * @param[in] x_coord   The x coordinate for the top-left pixel
+ * @param[in] y_coord   The y coordinate for the top-left pixel
+ *
+ * @return Pixels from the 2D OpenCL image object
+ * @{
+ */
+#define READ_IMAGE2D_STR(data_type, n0, img, x_coord, y_coord) read_image2d_##data_type##x##n0(img, x_coord, y_coord)
+#define READ_IMAGE2D(data_type, n0, img, x_coord, y_coord) READ_IMAGE2D_STR(data_type, n0, img, x_coord, y_coord)
+
 #define VSTORE_STR(size) vstore##size
 #define VSTORE(size) VSTORE_STR(size)
 
@@ -260,6 +303,142 @@ R"(
 
 #define vload1(OFFSET, PTR) *(OFFSET + PTR)
 #define vstore1(DATA, OFFSET, PTR) *(OFFSET + PTR) = DATA
+
+/** Extended partial vstore that correctly handles scalar values as well.
+ * Store the **lower** 0 to (n-1)th elements of the given vector while minimising the amount of vstore ops
+ * @name VSTORE_PARTIAL
+ *
+ * @note With this macro, the passed data can be both a vector and a scalar
+ * @note @p store_size needs to be <= @p size
+ * eg 1: Valid
+ * VSTORE_PARTIAL(16, 15) ...;
+ * eg 2: Invalid
+ * VSTORE_PARTIAL(4, 7) ...;
+ *
+ * @param[in] size       The width of @p DATA. Supported values: 1(scalar), 2, 3, 4, 8, 16
+ * @param[in] store_size The number of lower elements to store. Supported values: 1-16, but has to be <= @p size
+ * @{
+ */
+#define VSTORE_PARTIAL_STR(size, store_size) vstore_partial_##size##_##store_size
+#define VSTORE_PARTIAL(size, store_size) VSTORE_PARTIAL_STR(size, store_size)
+
+// Size == 1 (scalar)
+#define vstore_partial_1_1 vstore1
+// Size == 2
+#define vstore_partial_2_1 vstore_partial_1
+#define vstore_partial_2_2 vstore_partial_2
+// Size == 3
+#define vstore_partial_3_1 vstore_partial_1
+#define vstore_partial_3_2 vstore_partial_2
+#define vstore_partial_3_3 vstore_partial_3
+// Size == 4
+#define vstore_partial_4_1 vstore_partial_1
+#define vstore_partial_4_2 vstore_partial_2
+#define vstore_partial_4_3 vstore_partial_3
+#define vstore_partial_4_4 vstore_partial_4
+// Size == 8
+#define vstore_partial_8_1 vstore_partial_1
+#define vstore_partial_8_2 vstore_partial_2
+#define vstore_partial_8_3 vstore_partial_3
+#define vstore_partial_8_4 vstore_partial_4
+#define vstore_partial_8_5 vstore_partial_5
+#define vstore_partial_8_6 vstore_partial_6
+#define vstore_partial_8_7 vstore_partial_7
+#define vstore_partial_8_8 vstore_partial_8
+// Size == 16
+#define vstore_partial_16_1 vstore_partial_1
+#define vstore_partial_16_2 vstore_partial_2
+#define vstore_partial_16_3 vstore_partial_3
+#define vstore_partial_16_4 vstore_partial_4
+#define vstore_partial_16_5 vstore_partial_5
+#define vstore_partial_16_6 vstore_partial_6
+#define vstore_partial_16_7 vstore_partial_7
+#define vstore_partial_16_8 vstore_partial_8
+#define vstore_partial_16_9 vstore_partial_9
+#define vstore_partial_16_10 vstore_partial_10
+#define vstore_partial_16_11 vstore_partial_11
+#define vstore_partial_16_12 vstore_partial_12
+#define vstore_partial_16_13 vstore_partial_13
+#define vstore_partial_16_14 vstore_partial_14
+#define vstore_partial_16_15 vstore_partial_15
+#define vstore_partial_16_16 vstore_partial_16
+
+/** Partial vstore. Store the **lower** 0 to (n-1)th elements of the given vector while minimising the amount of vstore ops
+ * @name vstore_partial_n
+ *
+ * @note @p DATA needs to be a vector not a scalar
+ * @note n needs to be <= the vector width of the input variable @p DATA
+ * eg 1: Valid
+ * vstore_partial_15(var:float16, 0, 0xabcd);
+ * eg 2: Invalid
+ * vstore_partial_7(var:float4, 0, 0xabcd);
+ *
+ * @note in cases n == 1, 2, 3, 4, 8, 16, no extra vstore is invoked, thus there's no performance penalty.
+ *
+ * @param[in] DATA   The name of the variable
+ * @param[in] OFFSET Offset in n
+ * @param[in] PTR    The base pointer
+ * @{
+ */
+#define vstore_partial_1(DATA, OFFSET, PTR) \
+    vstore1(DATA.s0, OFFSET, PTR);
+
+#define vstore_partial_2(DATA, OFFSET, PTR) \
+    vstore2(DATA.s01, OFFSET, PTR);
+
+#define vstore_partial_3(DATA, OFFSET, PTR) \
+    vstore3(DATA.s012, OFFSET, PTR);
+
+#define vstore_partial_4(DATA, OFFSET, PTR) \
+    vstore4(DATA.s0123, OFFSET, PTR);
+
+#define vstore_partial_5(DATA, OFFSET, PTR)    \
+    vstore_partial_4(DATA.s0123, OFFSET, PTR); \
+    vstore1(DATA.s4, OFFSET, PTR + 4);
+
+#define vstore_partial_6(DATA, OFFSET, PTR)    \
+    vstore_partial_4(DATA.s0123, OFFSET, PTR); \
+    vstore_partial_2(DATA.s45, OFFSET, PTR + 4);
+
+#define vstore_partial_7(DATA, OFFSET, PTR)    \
+    vstore_partial_4(DATA.s0123, OFFSET, PTR); \
+    vstore_partial_3(DATA.s456, OFFSET, PTR + 4);
+
+#define vstore_partial_8(DATA, OFFSET, PTR) \
+    vstore8(DATA.s01234567, OFFSET, PTR);
+
+#define vstore_partial_9(DATA, OFFSET, PTR)        \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore1(DATA.s8, OFFSET, PTR + 8);
+
+#define vstore_partial_10(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_2(DATA.s89, OFFSET, PTR + 8);
+
+#define vstore_partial_11(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_3(DATA.s89a, OFFSET, PTR + 8);
+
+#define vstore_partial_12(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_4(DATA.s89ab, OFFSET, PTR + 8);
+
+#define vstore_partial_13(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_5(DATA.s89abc, OFFSET, PTR + 8);
+
+#define vstore_partial_14(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_6(DATA.s89abcd, OFFSET, PTR + 8);
+
+#define vstore_partial_15(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_7(DATA.s89abcde, OFFSET, PTR + 8);
+
+#define vstore_partial_16(DATA, OFFSET, PTR) \
+    vstore16(DATA, OFFSET, PTR);
+/** @} */ // end of groupd vstore_partial_n
+/** @} */ // end of groupd VSTORE_PARTIAL
 
 // Convert built-in functions with _sat modifier are not supported in floating point so we create defines
 // without _sat to overcome this issue
@@ -385,6 +564,10 @@ R"(
 
 #define CONVERT_TO_TENSOR4D_STRUCT_NO_STEP(name, mod_size) \
     update_tensor4D_workitem_ptr(name##_ptr, name##_offset_first_element_in_bytes, name##_stride_x, 0, name##_stride_y, 0, name##_stride_z, 0, name##_stride_w, 0, mod_size)
+
+#define CONVERT_TO_TENSOR3D_STRUCT_NO_UPDATE_PTR(name)                                                                                       \
+    tensor3D_ptr_no_update(name##_ptr, name##_offset_first_element_in_bytes, name##_stride_x, name##_step_x, name##_stride_y, name##_step_y, \
+                           name##_stride_z, name##_step_z)
 
 /** Structure to hold Vector information */
 typedef struct Vector
@@ -522,6 +705,32 @@ inline Tensor3D update_tensor3D_workitem_ptr(__global uchar *ptr, uint offset_fi
     return tensor;
 }
 
+/** Wrap 3D tensor information into an tensor structure.
+ *
+ * @param[in] ptr                           Pointer to the starting postion of the buffer
+ * @param[in] offset_first_element_in_bytes The offset of the first element in the source image
+ * @param[in] stride_x                      Stride of the image in X dimension (in bytes)
+ * @param[in] step_x                        stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in] stride_y                      Stride of the image in Y dimension (in bytes)
+ * @param[in] step_y                        stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in] stride_z                      Stride of the image in Z dimension (in bytes)
+ * @param[in] step_z                        stride_z * number of elements along Z processed per workitem(in bytes)
+ *
+ * @return A 3D tensor object
+ */
+inline Tensor3D tensor3D_ptr_no_update(__global uchar *ptr, uint offset_first_element_in_bytes, uint stride_x, uint step_x, uint stride_y, uint step_y, uint stride_z, uint step_z)
+{
+    Tensor3D tensor =
+    {
+        .ptr                           = ptr,
+        .offset_first_element_in_bytes = offset_first_element_in_bytes,
+        .stride_x                      = stride_x,
+        .stride_y                      = stride_y,
+        .stride_z                      = stride_z
+    };
+    return tensor;
+}
+
 inline Tensor4D update_tensor4D_workitem_ptr(__global uchar *ptr, uint offset_first_element_in_bytes, uint stride_x, uint step_x, uint stride_y, uint step_y, uint stride_z, uint step_z, uint stride_w,
                                              uint step_w,
                                              uint mod_size)
@@ -586,6 +795,31 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
     return tensor->ptr + x * tensor->stride_x + y * tensor->stride_y + z * tensor->stride_z + w * tensor->stride_w;
 }
 
+/** Get the offset for a given linear index of a Tensor3D
+ *
+ * @param[in] tensor Pointer to the starting position of the buffer
+ * @param[in] width  Width of the input tensor
+ * @param[in] height Height of the input tensor
+ * @param[in] depth  Depth of the input tensor
+ * @param[in] index  Linear index
+ */
+inline __global const uchar *tensor3D_index2ptr(const Tensor3D *tensor, uint width, uint height, uint depth, uint index)
+{
+    uint num_elements = width * height;
+
+    const uint z = index / num_elements;
+
+    index %= num_elements;
+
+    const uint y = index / width;
+
+    index %= width;
+
+    const uint x = index;
+
+    return tensor->ptr + x * tensor->stride_x + y * tensor->stride_y + z * tensor->stride_z + tensor->offset_first_element_in_bytes;
+}
+
 #endif // _HELPER_H
 
 #if GPU_ARCH == GPU_ARCH_BIFROST
@@ -593,6 +827,10 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
 #else // GPU_ARCH == GPU_ARCH_BIFROST
 #define MLA(a, b, c) ((b) * (c) + (a))
 #endif // GPU_ARCH == GPU_ARCH_BIFROST
+
+// Hard-Swish
+#define hard_swish_op(DATA_TYPE, x, A_VAL, B_VAL) (x * ((min(max((x + (DATA_TYPE)3.0), (DATA_TYPE)0.0), (DATA_TYPE)6.0)) * (DATA_TYPE)0.166666667))
+
 // Logistic Activation
 #define logistic_op(DATA_TYPE, x, A_VAL, B_VAL) ((DATA_TYPE)1.0 / ((DATA_TYPE)1.0 + exp(-x)))
 
@@ -632,11 +870,11 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
 // Identity Activation
 #define identity_op(DATA_TYPE, x, A_VAL, B_VAL) (x)
 
-#define OP(op, DATA_TYPE, x, A_VAL, B_VAL) op##_op(DATA_TYPE, x, A_VAL, B_VAL)
+#define ACT_OP(op, DATA_TYPE, x, A_VAL, B_VAL) op##_op(DATA_TYPE, x, A_VAL, B_VAL)
 
-#define ACTIVATION(op, DATA_TYPE, x, A_VAL, B_VAL) OP(op, DATA_TYPE, x, A_VAL, B_VAL)
+#define ACTIVATION(op, DATA_TYPE, x, A_VAL, B_VAL) ACT_OP(op, DATA_TYPE, x, A_VAL, B_VAL)
 /*
- * Copyright (c) 2016-2020 ARM Limited.
+ * Copyright (c) 2016-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -831,6 +1069,49 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
 #define VLOAD_STR(size) vload##size
 #define VLOAD(size) VLOAD_STR(size)
 
+#define PIXEL_UNIT4 1
+#define PIXEL_UNIT8 2
+#define PIXEL_UNIT16 4
+
+/** Utility macro to convert a vector size in pixel unit.
+ *
+ * @name CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT
+ *
+ * @param[in] vec_size Vector size. Only 4,8 and 16 is supported
+ *
+ * @return The pixel unit (number of pixels)
+ * @{
+ */
+#define CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT_STR(vec_size) PIXEL_UNIT##vec_size
+#define CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT(vec_size) CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT_STR(vec_size)
+/** @} */ // end of group CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT
+
+#define read_image2d_floatx1(img, x_coord, y_coord) (float4)(read_imagef(img, (int2)(x_coord, y_coord)));
+#define read_image2d_floatx2(img, x_coord, y_coord) (float8)(read_imagef(img, (int2)(x_coord, y_coord)), read_imagef(img, (int2)(x_coord + 1, y_coord)));
+#define read_image2d_floatx4(img, x_coord, y_coord) (float16)(read_imagef(img, (int2)(x_coord, y_coord)), read_imagef(img, (int2)(x_coord + 1, y_coord)), read_imagef(img, (int2)(x_coord + 2, y_coord)), read_imagef(img, (int2)(x_coord + 3, y_coord)));
+
+#if defined(ARM_COMPUTE_OPENCL_FP16_ENABLED) && defined(cl_khr_fp16)
+#define read_image2d_halfx1(img, x_coord, y_coord) (half4)(read_imageh(img, (int2)(x_coord, y_coord)));
+#define read_image2d_halfx2(img, x_coord, y_coord) (half8)(read_imageh(img, (int2)(x_coord, y_coord)), read_imageh(img, (int2)(x_coord + 1, y_coord)));
+#define read_image2d_halfx4(img, x_coord, y_coord) (half16)(read_imageh(img, (int2)(x_coord, y_coord)), read_imageh(img, (int2)(x_coord + 1, y_coord)), read_imageh(img, (int2)(x_coord + 2, y_coord)), read_imageh(img, (int2)(x_coord + 3, y_coord)));
+#endif // defined(ARM_COMPUTE_OPENCL_FP16_ENABLED) && defined(cl_khr_fp16)
+
+/** Utility macro to read a 2D OpenCL image object.
+ *
+ * @note Coordinates are not normalized
+ *
+ * @param[in] data_type Data type
+ * @param[in] n0        Number of pixel to read. Only 1,2 and 4 is supported
+ * @param[in] img       OpenCL image object
+ * @param[in] x_coord   The x coordinate for the top-left pixel
+ * @param[in] y_coord   The y coordinate for the top-left pixel
+ *
+ * @return Pixels from the 2D OpenCL image object
+ * @{
+ */
+#define READ_IMAGE2D_STR(data_type, n0, img, x_coord, y_coord) read_image2d_##data_type##x##n0(img, x_coord, y_coord)
+#define READ_IMAGE2D(data_type, n0, img, x_coord, y_coord) READ_IMAGE2D_STR(data_type, n0, img, x_coord, y_coord)
+
 #define VSTORE_STR(size) vstore##size
 #define VSTORE(size) VSTORE_STR(size)
 
@@ -848,6 +1129,142 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
 
 #define vload1(OFFSET, PTR) *(OFFSET + PTR)
 #define vstore1(DATA, OFFSET, PTR) *(OFFSET + PTR) = DATA
+
+/** Extended partial vstore that correctly handles scalar values as well.
+ * Store the **lower** 0 to (n-1)th elements of the given vector while minimising the amount of vstore ops
+ * @name VSTORE_PARTIAL
+ *
+ * @note With this macro, the passed data can be both a vector and a scalar
+ * @note @p store_size needs to be <= @p size
+ * eg 1: Valid
+ * VSTORE_PARTIAL(16, 15) ...;
+ * eg 2: Invalid
+ * VSTORE_PARTIAL(4, 7) ...;
+ *
+ * @param[in] size       The width of @p DATA. Supported values: 1(scalar), 2, 3, 4, 8, 16
+ * @param[in] store_size The number of lower elements to store. Supported values: 1-16, but has to be <= @p size
+ * @{
+ */
+#define VSTORE_PARTIAL_STR(size, store_size) vstore_partial_##size##_##store_size
+#define VSTORE_PARTIAL(size, store_size) VSTORE_PARTIAL_STR(size, store_size)
+
+// Size == 1 (scalar)
+#define vstore_partial_1_1 vstore1
+// Size == 2
+#define vstore_partial_2_1 vstore_partial_1
+#define vstore_partial_2_2 vstore_partial_2
+// Size == 3
+#define vstore_partial_3_1 vstore_partial_1
+#define vstore_partial_3_2 vstore_partial_2
+#define vstore_partial_3_3 vstore_partial_3
+// Size == 4
+#define vstore_partial_4_1 vstore_partial_1
+#define vstore_partial_4_2 vstore_partial_2
+#define vstore_partial_4_3 vstore_partial_3
+#define vstore_partial_4_4 vstore_partial_4
+// Size == 8
+#define vstore_partial_8_1 vstore_partial_1
+#define vstore_partial_8_2 vstore_partial_2
+#define vstore_partial_8_3 vstore_partial_3
+#define vstore_partial_8_4 vstore_partial_4
+#define vstore_partial_8_5 vstore_partial_5
+#define vstore_partial_8_6 vstore_partial_6
+#define vstore_partial_8_7 vstore_partial_7
+#define vstore_partial_8_8 vstore_partial_8
+// Size == 16
+#define vstore_partial_16_1 vstore_partial_1
+#define vstore_partial_16_2 vstore_partial_2
+#define vstore_partial_16_3 vstore_partial_3
+#define vstore_partial_16_4 vstore_partial_4
+#define vstore_partial_16_5 vstore_partial_5
+#define vstore_partial_16_6 vstore_partial_6
+#define vstore_partial_16_7 vstore_partial_7
+#define vstore_partial_16_8 vstore_partial_8
+#define vstore_partial_16_9 vstore_partial_9
+#define vstore_partial_16_10 vstore_partial_10
+#define vstore_partial_16_11 vstore_partial_11
+#define vstore_partial_16_12 vstore_partial_12
+#define vstore_partial_16_13 vstore_partial_13
+#define vstore_partial_16_14 vstore_partial_14
+#define vstore_partial_16_15 vstore_partial_15
+#define vstore_partial_16_16 vstore_partial_16
+
+/** Partial vstore. Store the **lower** 0 to (n-1)th elements of the given vector while minimising the amount of vstore ops
+ * @name vstore_partial_n
+ *
+ * @note @p DATA needs to be a vector not a scalar
+ * @note n needs to be <= the vector width of the input variable @p DATA
+ * eg 1: Valid
+ * vstore_partial_15(var:float16, 0, 0xabcd);
+ * eg 2: Invalid
+ * vstore_partial_7(var:float4, 0, 0xabcd);
+ *
+ * @note in cases n == 1, 2, 3, 4, 8, 16, no extra vstore is invoked, thus there's no performance penalty.
+ *
+ * @param[in] DATA   The name of the variable
+ * @param[in] OFFSET Offset in n
+ * @param[in] PTR    The base pointer
+ * @{
+ */
+#define vstore_partial_1(DATA, OFFSET, PTR) \
+    vstore1(DATA.s0, OFFSET, PTR);
+
+#define vstore_partial_2(DATA, OFFSET, PTR) \
+    vstore2(DATA.s01, OFFSET, PTR);
+
+#define vstore_partial_3(DATA, OFFSET, PTR) \
+    vstore3(DATA.s012, OFFSET, PTR);
+
+#define vstore_partial_4(DATA, OFFSET, PTR) \
+    vstore4(DATA.s0123, OFFSET, PTR);
+
+#define vstore_partial_5(DATA, OFFSET, PTR)    \
+    vstore_partial_4(DATA.s0123, OFFSET, PTR); \
+    vstore1(DATA.s4, OFFSET, PTR + 4);
+
+#define vstore_partial_6(DATA, OFFSET, PTR)    \
+    vstore_partial_4(DATA.s0123, OFFSET, PTR); \
+    vstore_partial_2(DATA.s45, OFFSET, PTR + 4);
+
+#define vstore_partial_7(DATA, OFFSET, PTR)    \
+    vstore_partial_4(DATA.s0123, OFFSET, PTR); \
+    vstore_partial_3(DATA.s456, OFFSET, PTR + 4);
+
+#define vstore_partial_8(DATA, OFFSET, PTR) \
+    vstore8(DATA.s01234567, OFFSET, PTR);
+
+#define vstore_partial_9(DATA, OFFSET, PTR)        \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore1(DATA.s8, OFFSET, PTR + 8);
+
+#define vstore_partial_10(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_2(DATA.s89, OFFSET, PTR + 8);
+
+#define vstore_partial_11(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_3(DATA.s89a, OFFSET, PTR + 8);
+
+#define vstore_partial_12(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_4(DATA.s89ab, OFFSET, PTR + 8);
+
+#define vstore_partial_13(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_5(DATA.s89abc, OFFSET, PTR + 8);
+
+#define vstore_partial_14(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_6(DATA.s89abcd, OFFSET, PTR + 8);
+
+#define vstore_partial_15(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_7(DATA.s89abcde, OFFSET, PTR + 8);
+
+#define vstore_partial_16(DATA, OFFSET, PTR) \
+    vstore16(DATA, OFFSET, PTR);
+/** @} */ // end of groupd vstore_partial_n
+/** @} */ // end of groupd VSTORE_PARTIAL
 
 // Convert built-in functions with _sat modifier are not supported in floating point so we create defines
 // without _sat to overcome this issue
@@ -973,6 +1390,10 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
 
 #define CONVERT_TO_TENSOR4D_STRUCT_NO_STEP(name, mod_size) \
     update_tensor4D_workitem_ptr(name##_ptr, name##_offset_first_element_in_bytes, name##_stride_x, 0, name##_stride_y, 0, name##_stride_z, 0, name##_stride_w, 0, mod_size)
+
+#define CONVERT_TO_TENSOR3D_STRUCT_NO_UPDATE_PTR(name)                                                                                       \
+    tensor3D_ptr_no_update(name##_ptr, name##_offset_first_element_in_bytes, name##_stride_x, name##_step_x, name##_stride_y, name##_step_y, \
+                           name##_stride_z, name##_step_z)
 
 /** Structure to hold Vector information */
 typedef struct Vector
@@ -1110,6 +1531,32 @@ inline Tensor3D update_tensor3D_workitem_ptr(__global uchar *ptr, uint offset_fi
     return tensor;
 }
 
+/** Wrap 3D tensor information into an tensor structure.
+ *
+ * @param[in] ptr                           Pointer to the starting postion of the buffer
+ * @param[in] offset_first_element_in_bytes The offset of the first element in the source image
+ * @param[in] stride_x                      Stride of the image in X dimension (in bytes)
+ * @param[in] step_x                        stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in] stride_y                      Stride of the image in Y dimension (in bytes)
+ * @param[in] step_y                        stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in] stride_z                      Stride of the image in Z dimension (in bytes)
+ * @param[in] step_z                        stride_z * number of elements along Z processed per workitem(in bytes)
+ *
+ * @return A 3D tensor object
+ */
+inline Tensor3D tensor3D_ptr_no_update(__global uchar *ptr, uint offset_first_element_in_bytes, uint stride_x, uint step_x, uint stride_y, uint step_y, uint stride_z, uint step_z)
+{
+    Tensor3D tensor =
+    {
+        .ptr                           = ptr,
+        .offset_first_element_in_bytes = offset_first_element_in_bytes,
+        .stride_x                      = stride_x,
+        .stride_y                      = stride_y,
+        .stride_z                      = stride_z
+    };
+    return tensor;
+}
+
 inline Tensor4D update_tensor4D_workitem_ptr(__global uchar *ptr, uint offset_first_element_in_bytes, uint stride_x, uint step_x, uint stride_y, uint step_y, uint stride_z, uint step_z, uint stride_w,
                                              uint step_w,
                                              uint mod_size)
@@ -1174,12 +1621,295 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
     return tensor->ptr + x * tensor->stride_x + y * tensor->stride_y + z * tensor->stride_z + w * tensor->stride_w;
 }
 
+/** Get the offset for a given linear index of a Tensor3D
+ *
+ * @param[in] tensor Pointer to the starting position of the buffer
+ * @param[in] width  Width of the input tensor
+ * @param[in] height Height of the input tensor
+ * @param[in] depth  Depth of the input tensor
+ * @param[in] index  Linear index
+ */
+inline __global const uchar *tensor3D_index2ptr(const Tensor3D *tensor, uint width, uint height, uint depth, uint index)
+{
+    uint num_elements = width * height;
+
+    const uint z = index / num_elements;
+
+    index %= num_elements;
+
+    const uint y = index / width;
+
+    index %= width;
+
+    const uint x = index;
+
+    return tensor->ptr + x * tensor->stride_x + y * tensor->stride_y + z * tensor->stride_z + tensor->offset_first_element_in_bytes;
+}
+
 #endif // _HELPER_H
+
+/** Utility macro to access a vector with the scalar positions
+ *
+ * Supported cases are: Offset can only be of the same size of the OpenCL vector (2,3,4,8,16)
+ *
+ * @param[in] offset The offset within the vector. Offset can only be of the same size of the OpenCL vector (2,3,4,8,16)
+ * @param[in] n0     The number of consecutive columns to access. n0 + offset must be <= 16
+ * @param[in] x      Vector to access
+ * @{
+ */
+#define SCALAR_ACCESS_STR(offset, n0, x) scalar_access_##offset##_##n0(x)
+#define SCALAR_ACCESS(offset, n0, x) SCALAR_ACCESS_STR(offset, n0, x)
+
+// offset == 0
+#define scalar_access_0_1(x) ((x).s0)
+#define scalar_access_0_2(x) ((x).s01)
+#define scalar_access_0_3(x) ((x).s012)
+#define scalar_access_0_4(x) ((x).s0123)
+#define scalar_access_0_8(x) ((x).s01234567)
+#define scalar_access_0_16(x) ((x).s0123456789ABCDEF)
+
+// offset == 1
+#define scalar_access_1_1(x) ((x).s1)
+#define scalar_access_1_2(x) ((x).s12)
+#define scalar_access_1_3(x) ((x).s123)
+#define scalar_access_1_4(x) ((x).s1234)
+#define scalar_access_1_8(x) ((x).s12345678)
+
+// offset == 2
+#define scalar_access_2_1(x) ((x).s2)
+#define scalar_access_2_2(x) ((x).s23)
+#define scalar_access_2_3(x) ((x).s234)
+#define scalar_access_2_4(x) ((x).s2345)
+#define scalar_access_2_8(x) ((x).s23456789)
+
+// offset == 3
+#define scalar_access_3_1(x) ((x).s3)
+#define scalar_access_3_2(x) ((x).s34)
+#define scalar_access_3_3(x) ((x).s345)
+#define scalar_access_3_4(x) ((x).s3456)
+#define scalar_access_3_8(x) ((x).s3456789A)
+
+// offset == 4
+#define scalar_access_4_1(x) ((x).s4)
+#define scalar_access_4_2(x) ((x).s45)
+#define scalar_access_4_3(x) ((x).s456)
+#define scalar_access_4_4(x) ((x).s4567)
+#define scalar_access_4_8(x) ((x).s456789AB)
+
+// offset == 8
+#define scalar_access_8_1(x) ((x).s8)
+#define scalar_access_8_2(x) ((x).s89)
+#define scalar_access_8_3(x) ((x).s89A)
+#define scalar_access_8_4(x) ((x).s89AB)
+#define scalar_access_8_8(x) ((x).s89ABCDEF)
+
+// offset == 12
+#define scalar_access_12_1(x) ((x).sC)
+#define scalar_access_12_2(x) ((x).sCD)
+#define scalar_access_12_3(x) ((x).sCDE)
+#define scalar_access_12_4(x) ((x).sCDEF)
+
+// offset == 16
+#define scalar_access_16_1(x) ((x).sF)
+
+/** Loads the rows from 0 to n-1 in the given variables (BASENAME0 to BASENAMEn-1) without allocating variables.
+ * @name LOAD_TENSOR_ROW_n
+ *
+ * @param[in] N0         The number of columns to load
+ * @param[in] DATA_TYPE  The data type of variables
+ * @param[in] BASENAME   The basename of the destination variables for the loaded rows
+ * @param[in] PTR        The base pointer
+ * @param[in] COL_OFFSET The column vector offset. COL_OFFSET + N0 must be <= 16
+ * @param[in] STRIDE_Y   The stride value in y-axis direction
+ * @param[in] Z          The z-axis offset vector
+ * @{
+ */
+#define LOAD_TENSOR_ROW_0(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    ({})
+
+#define LOAD_TENSOR_ROW_1(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##0) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 0 * STRIDE_Y + Z##0));
+
+#define LOAD_TENSOR_ROW_2(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_1(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##1) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 1 * STRIDE_Y + Z##1));
+
+#define LOAD_TENSOR_ROW_3(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_2(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##2) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 2 * STRIDE_Y + Z##2));
+
+#define LOAD_TENSOR_ROW_4(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_3(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##3) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 3 * STRIDE_Y + Z##3));
+
+#define LOAD_TENSOR_ROW_5(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_4(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##4) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 4 * STRIDE_Y + Z##4));
+
+#define LOAD_TENSOR_ROW_6(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_5(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##5) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 5 * STRIDE_Y + Z##5));
+
+#define LOAD_TENSOR_ROW_7(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_6(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##6) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 6 * STRIDE_Y + Z##6));
+
+#define LOAD_TENSOR_ROW_8(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_7(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##7) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 7 * STRIDE_Y + Z##7));
+
+#define LOAD_TENSOR_ROW_9(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_8(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##8) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 8 * STRIDE_Y + Z##8));
+
+#define LOAD_TENSOR_ROW_10(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_9(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)      \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##9) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 9 * STRIDE_Y + Z##9));
+
+#define LOAD_TENSOR_ROW_11(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_10(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##A) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 10 * STRIDE_Y + Z##A));
+
+#define LOAD_TENSOR_ROW_12(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_11(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##B) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 11 * STRIDE_Y + Z##B));
+
+#define LOAD_TENSOR_ROW_13(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_12(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##C) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 12 * STRIDE_Y + Z##C));
+
+#define LOAD_TENSOR_ROW_14(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_13(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##D) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 13 * STRIDE_Y + Z##D));
+
+#define LOAD_TENSOR_ROW_15(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_14(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##E) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 14 * STRIDE_Y + Z##E));
+
+#define LOAD_TENSOR_ROW_16(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) \
+    LOAD_TENSOR_ROW_15(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)     \
+    SCALAR_ACCESS(COL_OFFSET, N0, BASENAME##F) = VLOAD(N0)(0, (__global DATA_TYPE *)(PTR + 15 * STRIDE_Y + Z##F));
+/** @}*/ // end of group LOAD_TENSOR_ROW_n
+
+/** Load tensor (consecutive rows and columns) with Z offset.
+ * @name LOAD_TENSOR
+ *
+ * Supported cases are M0=1,2,3,...,16 and N0=1,2,3,4,8,16
+ * The data to load is expected to have consecutive names for each row.
+ * E.g., for M0=3, and BASENAME=c, the expected data is c0, c1 and c2.
+ * The Z offset is expected to have consecutive names.
+ * E.g., for M0=3, and Z=zin, the expected Z offsets are zin0, zin1 and zin2.
+ *
+ * @param[in] M0         The number of consecutive rows
+ * @param[in] N0         The number of consecutive columns
+ * @param[in] DATA_TYPE  The data type of the target
+ * @param[in] BASENAME   The basename of the result variables
+ * @param[in] PTR        The base pointer for the data
+ * @param[in] COL_OFFSET The column vector offset. COL_OFFSET + N0 must be <= 16
+ * @param[in] STRIDE_Y   The stride in y-axis direction
+ * @param[in] Z          The z-axis offset vector
+ * @{
+ */
+#define LOAD_TENSOR_STR(M0, N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) LOAD_TENSOR_ROW_##M0(N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)
+#define LOAD_TENSOR(M0, N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z) LOAD_TENSOR_STR(M0, N0, DATA_TYPE, BASENAME, PTR, COL_OFFSET, STRIDE_Y, Z)
+/** @} */ // end of group LOAD_TENSOR
+
+/** Load 2D tensor (consecutive rows and columns) with Z offset.
+ * @name LOAD_TENSOR_M0Xn
+ *
+ * @param[in] M0        The number of rows to load [0-16]
+ * @param[in] N0        The number of columns to load [0-16]
+ * @param[in] DATA_TYPE The data type of variables
+ * @param[in] BASENAME  The basename of the destination variables for the loaded rows
+ * @param[in] PTR       The base pointer
+ * @param[in] STRIDE_Y  The stride value in y-axis direction
+ * @param[in] Z         The z-axis offset vector
+ * @{
+ */
+#define LOAD_TENSOR_M0X0(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    ({})
+
+#define LOAD_TENSOR_M0X1(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    LOAD_TENSOR(M0, N0, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X2(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    LOAD_TENSOR(M0, N0, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X3(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    LOAD_TENSOR(M0, N0, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X4(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    LOAD_TENSOR(M0, N0, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X5(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    LOAD_TENSOR(M0, 4, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);       \
+    LOAD_TENSOR(M0, 1, DATA_TYPE, a, input_ptr + 4 * sizeof(DATA_TYPE), 4, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X6(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    LOAD_TENSOR(M0, 4, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);       \
+    LOAD_TENSOR(M0, 2, DATA_TYPE, a, input_ptr + 4 * sizeof(DATA_TYPE), 4, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X7(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    LOAD_TENSOR(M0, 4, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);       \
+    LOAD_TENSOR(M0, 3, DATA_TYPE, a, input_ptr + 4 * sizeof(DATA_TYPE), 4, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X8(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    LOAD_TENSOR(M0, N0, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X9(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    LOAD_TENSOR(M0, 8, DATA_TYPE, a, input_ptr 0, src_stride_y, zin);        \
+    LOAD_TENSOR(M0, 1, DATA_TYPE, a, input_ptr + 8 * sizeof(DATA_TYPE), 8, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X10(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    LOAD_TENSOR(M0, 8, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);        \
+    LOAD_TENSOR(M0, 2, DATA_TYPE, a, input_ptr + 8 * sizeof(DATA_TYPE), 8, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X11(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    LOAD_TENSOR(M0, 8, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);        \
+    LOAD_TENSOR(M0, 3, DATA_TYPE, a, input_ptr + 8 * sizeof(DATA_TYPE), 8, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X12(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    LOAD_TENSOR(M0, 8, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);        \
+    LOAD_TENSOR(M0, 4, DATA_TYPE, a, input_ptr + 8 * sizeof(DATA_TYPE), 8, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X13(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin)                  \
+    LOAD_TENSOR(M0, 8, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);                         \
+    LOAD_TENSOR(M0, 4, DATA_TYPE, a, input_ptr + 8 * sizeof(DATA_TYPE), 8, src_stride_y, zin); \
+    LOAD_TENSOR(M0, 1, DATA_TYPE, a, input_ptr + 12 * sizeof(DATA_TYPE), 12, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X14(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin)                  \
+    LOAD_TENSOR(M0, 8, DATA_TYPE, a, input_ptr 0, src_stride_y, zin);                          \
+    LOAD_TENSOR(M0, 4, DATA_TYPE, a, input_ptr + 8 * sizeof(DATA_TYPE), 8, src_stride_y, zin); \
+    LOAD_TENSOR(M0, 2, DATA_TYPE, a, input_ptr + 12 * sizeof(DATA_TYPE), 12, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X15(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin)                  \
+    LOAD_TENSOR(M0, 8, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);                         \
+    LOAD_TENSOR(M0, 4, DATA_TYPE, a, input_ptr + 8 * sizeof(DATA_TYPE), 8, src_stride_y, zin); \
+    LOAD_TENSOR(M0, 3, DATA_TYPE, a, input_ptr + 12 * sizeof(DATA_TYPE), 12, src_stride_y, zin);
+
+#define LOAD_TENSOR_M0X16(M0, N0, DATA_TYPE, a, input_ptr, src_stride_y, zin) \
+    LOAD_TENSOR(M0, N0, DATA_TYPE, a, input_ptr, 0, src_stride_y, zin);
+/** @}*/ // end of group LOAD_TENSOR_M0Xn
+
+/** Load 2D tensor (consecutive rows and columns) with Z offset.
+ * @name LOAD_TENSOR_M0XN0
+ *
+ * @param[in] M0        The number of consecutive rows [0-16]
+ * @param[in] N0        The number of consecutive columns [0-16]
+ * @param[in] DATA_TYPE The data type of the target
+ * @param[in] BASENAME  The basename of the result variables
+ * @param[in] PTR       The base pointer for the data
+ * @param[in] STRIDE_Y  The stride in y-axis direction
+ * @param[in] Z         The z-axis offset vector
+ * @{
+ */
+#define LOAD_TENSOR_M0XN0_STR(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) LOAD_TENSOR_M0X##N0(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)
+#define LOAD_TENSOR_M0XN0(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) LOAD_TENSOR_M0XN0_STR(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)
 
 /** Loads the rows from 0 to n-1 in the given variables (BASENAME0 to BASENAMEn-1).
  * @name LOAD_ROW_n
  *
- * @param[in] N0        The number of rows to load
+ * @param[in] N0        The number of columns to load
  * @param[in] DATA_TYPE The data type of variables
  * @param[in] BASENAME  The basename of the destination variables for the loaded rows
  * @param[in] PTR       The base pointer
@@ -1292,6 +2022,217 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
 #define LOAD_BLOCK(M0, N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y, Z) LOAD_BLOCK_STR(M0, N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y, Z)
 /** @} */ // end of group LOAD_BLOCK
 
+/** Loads the rows from 0 to n-1 in the given variables (BASENAME0 to BASENAMEn-1).
+ * @name LOAD_TEXTURE2D_ROW_n
+ *
+ * @param[in] N0         The number of pixels to read
+ * @param[in] DATA_TYPE  The data type of variables
+ * @param[in] BASENAME   The basename of the destination variables for the loaded rows
+ * @param[in] IMG        The 2D OpenCL image object
+ * @param[in] X_COORD    The x coordinate for the top-left pixel
+ * @param[in] Y_COORD    The y coordinate for the top-left pixel
+ * @param[in] X_STEP_ROW The incremental step row for the x coordinate (in pixels)
+ * @param[in] Y_STEP_ROW The incremental step row for the y coordinate (in pixels)
+ * @{
+ */
+#define LOAD_TEXTURE2D_ROW_1(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    BASENAME##0 = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 0 * X_STEP_ROW), (Y_COORD + 0 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_2(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_1(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##1 = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 1 * X_STEP_ROW), (Y_COORD + 1 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_3(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_2(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##2 = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 2 * X_STEP_ROW), (Y_COORD + 2 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_4(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_3(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##3 = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 3 * X_STEP_ROW), (Y_COORD + 3 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_5(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_4(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##4 = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 4 * X_STEP_ROW), (Y_COORD + 4 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_6(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_5(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##5 = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 5 * X_STEP_ROW), (Y_COORD + 5 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_7(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_6(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##6 = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 6 * X_STEP_ROW), (Y_COORD + 6 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_8(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_7(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##7 = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 7 * X_STEP_ROW), (Y_COORD + 7 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_9(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_8(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##8 = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 8 * X_STEP_ROW), (Y_COORD + 8 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_10(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_9(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)      \
+    BASENAME##9 = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 9 * X_STEP_ROW), (Y_COORD + 9 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_11(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_10(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##A = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 10 * X_STEP_ROW), (Y_COORD + 10 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_12(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_11(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##B = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 11 * X_STEP_ROW), (Y_COORD + 11 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_13(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_12(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##C = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 12 * X_STEP_ROW), (Y_COORD + 12 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_14(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_13(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##D = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 13 * X_STEP_ROW), (Y_COORD + 13 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_15(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_14(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##E = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 14 * X_STEP_ROW), (Y_COORD + 14 * Y_STEP_ROW))
+
+#define LOAD_TEXTURE2D_ROW_16(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) \
+    LOAD_TEXTURE2D_ROW_15(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)     \
+    BASENAME##F = READ_IMAGE2D(DATA_TYPE, N0, IMG, (X_COORD + 15 * X_STEP_ROW), (Y_COORD + 15 * Y_STEP_ROW))
+/** @} */ // end of group LOAD_TEXTURE2D_ROW_n
+
+/** Load a 2D texture in unit of pixel. A pixel is made of 4 floating point values
+ * @name LOAD_TEXTURE2D
+ *
+ * Supported cases are M0=1,2,3,...,16 and N0=1
+ * The data to load is expected to have consecutive names for each row.
+ * E.g., for M0=3, and BASENAME=c, the expected data is c0, c1 and c2.
+ *
+ * @param[in] M0         The number of consecutive rows
+ * @param[in] N0         The number of consecutive pixels. Only 1, 2 and 4 are supported
+ * @param[in] DATA_TYPE  The data type of the target
+ * @param[in] BASENAME   The basename of the result variables
+ * @param[in] IMG        The 2D OpenCL image object
+ * @param[in] X_COORD    The x coordinate for the top-left pixel
+ * @param[in] Y_COORD    The y coordinate for the top-left pixel
+ * @param[in] X_STEP_ROW The incremental step row for the x coordinate (in pixels)
+ * @param[in] Y_STEP_ROW The incremental step row for the y coordinate (in pixels)
+ * @{
+ */
+#define LOAD_TEXTURE2D_STR(M0, N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) LOAD_TEXTURE2D_ROW_##M0(N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)
+#define LOAD_TEXTURE2D(M0, N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW) LOAD_TEXTURE2D_STR(M0, N0, DATA_TYPE, BASENAME, IMG, X_COORD, Y_COORD, X_STEP_ROW, Y_STEP_ROW)
+/** @} */ // end of group LOAD_TEXTURE2D
+
+/** Loads the elements from 0 to n-1 in the given variables (BASENAME0 to BASENAMEn-1).
+ * @name LOAD_ELEMENT_n
+ *
+ * @param[in] N0        The number of rows to load
+ * @param[in] DATA_TYPE The data type of variables
+ * @param[in] BASENAME  The basename of the destination variables for the loaded rows
+ * @param[in] PTR       The base pointer
+ * @param[in] OFFSET    The offset within a row
+ * @param[in] STRIDE_Y  The stride value in y-axis direction
+ * @{
+ */
+#define LOAD_ELEMENT_1(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                       \
+    BASENAME##0 = *((__global DATA_TYPE *)(PTR + OFFSET + 0 * STRIDE_Y));
+
+#define LOAD_ELEMENT_2(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_1(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                       \
+    BASENAME##1 = *((__global DATA_TYPE *)(PTR + OFFSET + 1 * STRIDE_Y));
+
+#define LOAD_ELEMENT_3(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_2(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                       \
+    BASENAME##2 = *((__global DATA_TYPE *)(PTR + OFFSET + 2 * STRIDE_Y));
+
+#define LOAD_ELEMENT_4(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_3(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                       \
+    BASENAME##3 = *((__global DATA_TYPE *)(PTR + OFFSET + 3 * STRIDE_Y));
+
+#define LOAD_ELEMENT_5(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_4(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                       \
+    BASENAME##4 = *((__global DATA_TYPE *)(PTR + OFFSET + 4 * STRIDE_Y));
+
+#define LOAD_ELEMENT_6(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_5(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                       \
+    BASENAME##5 = *((__global DATA_TYPE *)(PTR + OFFSET + 5 * STRIDE_Y));
+
+#define LOAD_ELEMENT_7(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_6(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                       \
+    BASENAME##6 = *((__global DATA_TYPE *)(PTR + OFFSET + 6 * STRIDE_Y));
+
+#define LOAD_ELEMENT_8(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_7(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                       \
+    BASENAME##7 = *((__global DATA_TYPE *)(PTR + OFFSET + 7 * STRIDE_Y));
+
+#define LOAD_ELEMENT_9(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_8(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                       \
+    BASENAME##8 = *((__global DATA_TYPE *)(PTR + OFFSET + 8 * STRIDE_Y));
+
+#define LOAD_ELEMENT_10(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_9(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)      \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                        \
+    BASENAME##9 = *((__global DATA_TYPE *)(PTR + OFFSET + 9 * STRIDE_Y));
+
+#define LOAD_ELEMENT_11(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_10(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                        \
+    BASENAME##A = *((__global DATA_TYPE *)(PTR + OFFSET + 10 * STRIDE_Y));
+
+#define LOAD_ELEMENT_12(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_11(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                        \
+    BASENAME##B = *((__global DATA_TYPE *)(PTR + OFFSET + 11 * STRIDE_Y));
+
+#define LOAD_ELEMENT_13(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_12(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                        \
+    BASENAME##C = *((__global DATA_TYPE *)(PTR + OFFSET + 12 * STRIDE_Y));
+
+#define LOAD_ELEMENT_14(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_13(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                        \
+    BASENAME##D = *((__global DATA_TYPE *)(PTR + OFFSET + 13 * STRIDE_Y));
+
+#define LOAD_ELEMENT_15(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_14(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                        \
+    BASENAME##E = *((__global DATA_TYPE *)(PTR + OFFSET + 14 * STRIDE_Y));
+
+#define LOAD_ELEMENT_16(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) \
+    LOAD_ELEMENT_15(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)     \
+    VEC_DATA_TYPE(DATA_TYPE, N0)                                        \
+    BASENAME##F = *((__global DATA_TYPE *)(PTR + OFFSET + 15 * STRIDE_Y));
+
+/** @}*/ // end of group LOAD_ELEMENT_n
+
+/** Load Scalar as Vector (consecutive elements).
+ * @name LOAD_SCALAR_AS_VECTOR
+ *
+ * Supported cases are M0=1,2,3,...,16 and N0=1,2,3,4,8,16
+ * The data to load is expected to have consecutive names for each row.
+ * E.g., for M0=3, and BASENAME=c, the expected data is c0, c1 and c2.
+ *
+ * @param[in] M0        The number of consecutive rows
+ * @param[in] N0        The number of consecutive columns
+ * @param[in] DATA_TYPE The data type of the target
+ * @param[in] BASENAME  The basename of the result variables
+ * @param[in] PTR       The base pointer for the data
+ * @param[in] OFFSET    The offset within a row
+ * @param[in] STRIDE_Y  The stride in y-axis direction
+ * @{
+ */
+#define LOAD_SCALAR_AS_VECTOR_STR(M0, N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) LOAD_ELEMENT_##M0(N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)
+#define LOAD_SCALAR_AS_VECTOR(M0, N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y) LOAD_SCALAR_AS_VECTOR_STR(M0, N0, DATA_TYPE, BASENAME, PTR, OFFSET, STRIDE_Y)
+/** @} */ // end of group LOAD_SCALAR_AS_VECTOR
+
 /** Basic macros to calculate Z offset values from Z0 to Zn-1
  * @name CALCULATE_Z_OFFSET_n
  *
@@ -1394,7 +2335,7 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
 /** Store the 0 to (n-1)th rows of the given variables
  * @name STORE_ROW_n
  *
- * @param[in] N0        The size of the vectors
+ * @param[in] N0        The width of the passed in vector. Supported: 1, 2, 3, 4, 8, 16
  * @param[in] DATA_TYPE The data type of the vectors
  * @param[in] BASENAME  The basename of the variables
  * @param[in] PTR       The base pointer
@@ -1481,6 +2422,101 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
     VSTORE(N0)                                                  \
     (BASENAME##F, 0, (__global DATA_TYPE *)(PTR + 15 * STRIDE_Y + Z##F));
 /** @} */ // end of groupd STORE_ROW_n
+
+/** Partially store the 0 to (n-1)th rows of the given variables
+ * @name STORE_ROW_PARTIAL_n
+ * Within each row, store the lower @p STORE_N0 elements of vectors of width @p N0
+ *
+ * @note in case @p STORE_N0 != 1, 2, 3, 4, 8, 16, extra vstore(s) will be invoked, thus incurring small performance penalty.
+ *
+ * @param[in] N0        The width of the passed in vector. Supported: 1, 2, 3, 4, 8, 16
+ * @param[in] STORE_N0  The **lower** size of the vectors to store. Supported: [1-16 and <= @p N0
+ * @param[in] DATA_TYPE The data type of the vectors
+ * @param[in] BASENAME  The basename of the variables
+ * @param[in] PTR       The base pointer
+ * @param[in] STRIDE_Y  The stride value in y-axis direction
+ * @param[in] Z         The offset in z-axis direction
+ * @{
+ */
+#define STORE_ROW_PARTIAL_1(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                 \
+    (BASENAME##0, 0, (__global DATA_TYPE *)(PTR + 0 * STRIDE_Y + Z##0));
+
+#define STORE_ROW_PARTIAL_2(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_1(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                 \
+    (BASENAME##1, 0, (__global DATA_TYPE *)(PTR + 1 * STRIDE_Y + Z##1));
+
+#define STORE_ROW_PARTIAL_3(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_2(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                 \
+    (BASENAME##2, 0, (__global DATA_TYPE *)(PTR + 2 * STRIDE_Y + Z##2));
+
+#define STORE_ROW_PARTIAL_4(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_3(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                 \
+    (BASENAME##3, 0, (__global DATA_TYPE *)(PTR + 3 * STRIDE_Y + Z##3));
+
+#define STORE_ROW_PARTIAL_5(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_4(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                 \
+    (BASENAME##4, 0, (__global DATA_TYPE *)(PTR + 4 * STRIDE_Y + Z##4));
+
+#define STORE_ROW_PARTIAL_6(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_5(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                 \
+    (BASENAME##5, 0, (__global DATA_TYPE *)(PTR + 5 * STRIDE_Y + Z##5));
+
+#define STORE_ROW_PARTIAL_7(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_6(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                 \
+    (BASENAME##6, 0, (__global DATA_TYPE *)(PTR + 6 * STRIDE_Y + Z##6));
+
+#define STORE_ROW_PARTIAL_8(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_7(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                 \
+    (BASENAME##7, 0, (__global DATA_TYPE *)(PTR + 7 * STRIDE_Y + Z##7));
+
+#define STORE_ROW_PARTIAL_9(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_8(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                 \
+    (BASENAME##8, 0, (__global DATA_TYPE *)(PTR + 8 * STRIDE_Y + Z##8));
+
+#define STORE_ROW_PARTIAL_10(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_9(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)      \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                  \
+    (BASENAME##9, 0, (__global DATA_TYPE *)(PTR + 9 * STRIDE_Y + Z##9));
+
+#define STORE_ROW_PARTIAL_11(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_10(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                  \
+    (BASENAME##A, 0, (__global DATA_TYPE *)(PTR + 10 * STRIDE_Y + Z##A));
+
+#define STORE_ROW_PARTIAL_12(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_11(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                  \
+    (BASENAME##B, 0, (__global DATA_TYPE *)(PTR + 11 * STRIDE_Y + Z##B));
+
+#define STORE_ROW_PARTIAL_13(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_12(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                  \
+    (BASENAME##C, 0, (__global DATA_TYPE *)(PTR + 12 * STRIDE_Y + Z##C));
+
+#define STORE_ROW_PARTIAL_14(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_13(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                  \
+    (BASENAME##D, 0, (__global DATA_TYPE *)(PTR + 13 * STRIDE_Y + Z##D));
+
+#define STORE_ROW_PARTIAL_15(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_14(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                  \
+    (BASENAME##E, 0, (__global DATA_TYPE *)(PTR + 14 * STRIDE_Y + Z##E));
+
+#define STORE_ROW_PARTIAL_16(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) \
+    STORE_ROW_PARTIAL_15(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)     \
+    VSTORE_PARTIAL(N0, STORE_N0)                                                  \
+    (BASENAME##F, 0, (__global DATA_TYPE *)(PTR + 15 * STRIDE_Y + Z##F));
+/** @} */ // end of groupd STORE_ROW_PARTIAL_n
 
 /** Convert and store the 0th to (n-1)th rows of the given variables
  * @name CONVERT_STORE_ROW_n
@@ -1595,6 +2631,127 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
 #define STORE_BLOCK_STR(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) STORE_ROW_##M0(N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)
 #define STORE_BLOCK(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) STORE_BLOCK_STR(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)
 /** @} */ // end of group STORE_BLOCK
+
+/** Partially store a block of the given size STORE_M0xSTORE_N0
+ * @name STORE_BLOCK_PARTIAL
+ *
+ * @note The vector width @p N0 is also required for correct partial storing behaviour.
+ * @note in case @p STORE_N0 != 1, 2, 3, 4, 8, 16, extra vstore(s) will be invoked, thus incurring small performance penalty.
+ *
+ * The data to store is expected to have consecutive names for each row.
+ * E.g., for STORE_M0=3 and basename=c, the expected names are c0, c1 and c2.
+ * The Z offset is expected to have consecutive names.
+ * E.g., for STORE_M0=3 and Z=zin, the expected z offset names are zin0, zin1 and zin2.
+ *
+ * @param[in] STORE_M0  The number of rows to store. Supported: 1-16
+ * @param[in] STORE_N0  The lower number of elements of vectors to store. Supported: 1-16 and <= @p N0
+ * @param[in] N0        The size of each vector. Supported: 1, 2, 3, 4, 8, 16
+ * @param[in] DATA_TYPE The data type of the vectors
+ * @param[in] BASENAME  The basename of the variables
+ * @param[in] PTR       The base pointer
+ * @param[in] STRIDE_Y  The stride value in y-axis direction
+ * @param[in] Z         The offset in z-axis direction
+ * @{
+ */
+#define STORE_BLOCK_PARTIAL_STR(STORE_M0, STORE_N0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) STORE_ROW_PARTIAL_##STORE_M0(N0, STORE_N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)
+#define STORE_BLOCK_PARTIAL(STORE_M0, STORE_N0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z) STORE_BLOCK_PARTIAL_STR(STORE_M0, STORE_N0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)
+/** Store a block that can be partial in both x and y dimensions
+ *
+ * @note in cases @p PARTIAL_STORE_N0 != 1, 2, 3, 4, 8, 16, extra vstore(s) will be invoked, thus incurring small performance penalty.
+ *
+ * The data to store is expected to have consecutive names for each row.
+ * E.g., for M0=3 and basename=c, the expected names are c0, c1 and c2.
+ * The Z offset is expected to have consecutive names.
+ * E.g., for M0=3 and Z=zin, the expected z offset names are zin0, zin1 and zin2.
+ *
+ * @param[in] M0               The number of rows to store, for non-partial blocks. Supported: 1-16
+ * @param[in] N0               The size of each vector, for non-partial blocks. Supported: 1, 2, 3, 4, 8, 16
+ * @param[in] DATA_TYPE        The data type of the vectors
+ * @param[in] BASENAME         The basename of the variables
+ * @param[in] PTR              The base pointer
+ * @param[in] STRIDE_Y         The stride value in y-axis direction
+ * @param[in] Z                The offset in z-axis direction
+ * @param[in] PARTIAL_STORE_M0 The partial size in y, for partial blocks. Supported range: [1, @p M0)
+ * @param[in] PARTIAL_STORE_N0 The partial size in x, for partial blocks. Supported range: [1, @p N0)
+ * @param[in] N                Total number of columns. Used to detect if current block is at the boundary in x.
+ * @param[in] PARTIAL_COND_Y   Condition on the y axis to perform the partial store Y. True to use PARTIAL_STORE_M0 rather than M0.
+ * @param[in] PARTIAL_COND_X   Condition on the x axis to perform the partial store X. True to use PARTIAL_STORE_N0 rather than N0.
+ */
+#define STORE_BLOCK_PARTIAL_IN_X_AND_Y(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z, PARTIAL_STORE_M0, PARTIAL_STORE_N0, N, PARTIAL_COND_Y, PARTIAL_COND_X) \
+    if(!(PARTIAL_COND_X) && !(PARTIAL_COND_Y))                                                                                                               \
+    {                                                                                                                                        \
+        STORE_BLOCK_PARTIAL(M0, N0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z);                                                              \
+    }                                                                                                                                        \
+    else if((PARTIAL_COND_Y) && !(PARTIAL_COND_X))                                                                                                           \
+    {                                                                                                                                        \
+        STORE_BLOCK_PARTIAL(PARTIAL_STORE_M0, N0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z);                                                \
+    }                                                                                                                                        \
+    else if(!(PARTIAL_COND_Y) && (PARTIAL_COND_X))                                                                                                           \
+    {                                                                                                                                        \
+        STORE_BLOCK_PARTIAL(M0, PARTIAL_STORE_N0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z);                                                \
+    }                                                                                                                                        \
+    else                                                                                                                                     \
+    {                                                                                                                                        \
+        STORE_BLOCK_PARTIAL(PARTIAL_STORE_M0, PARTIAL_STORE_N0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z);                                  \
+    }
+/** Store a block that can only be partial in x but not y.
+ *
+ * @note in case @p N0 or @p PARTIAL_STORE_N0 != 1, 2, 3, 4, 8, 16, extra vstore(s) will be invoked, thus incurring small performance penalty.
+ *
+ * The data to store is expected to have consecutive names for each row.
+ * E.g., for M0=3 and basename=c, the expected names are c0, c1 and c2.
+ * The Z offset is expected to have consecutive names.
+ * E.g., for M0=3 and Z=zin, the expected z offset names are zin0, zin1 and zin2.
+ *
+ * @param[in] M0               The number of rows to store, for non-partial blocks. Supported: 1-16
+ * @param[in] N0               The size of each vector, for non-partial blocks. Supported: 1, 2, 3, 4, 8, 16
+ * @param[in] DATA_TYPE        The data type of the vectors
+ * @param[in] BASENAME         The basename of the variables
+ * @param[in] PTR              The base pointer
+ * @param[in] STRIDE_Y         The stride value in y-axis direction
+ * @param[in] Z                The offset in z-axis direction
+ * @param[in] PARTIAL_STORE_N0 The partial size in x, for partial blocks. Supported range: [1, @p N0)
+ * @param[in] N                Total number of columns. Used to detect if current block is at the boundary in x.
+ * @param[in] PARTIAL_COND_X   Condition on the x axis to perform the partial store X. True to use PARTIAL_STORE_N0 rather than N0.
+ */
+#define STORE_BLOCK_PARTIAL_IN_X(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z, PARTIAL_STORE_N0, N, PARTIAL_COND_X) \
+    if(!(PARTIAL_COND_X))                                                                                            \
+    {                                                                                                        \
+        STORE_BLOCK_PARTIAL(M0, N0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z);                              \
+    }                                                                                                        \
+    else                                                                                                     \
+    {                                                                                                        \
+        STORE_BLOCK_PARTIAL(M0, PARTIAL_STORE_N0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z);                \
+    }
+/** Store a block that can only be partial in y but not x.
+ *
+ * @note in case @p N0 or @p PARTIAL_STORE_N0 != 1, 2, 3, 4, 8, 16, extra vstore(s) will be invoked, thus incurring small performance penalty.
+ *
+ * The data to store is expected to have consecutive names for each row.
+ * E.g., for M0=3 and basename=c, the expected names are c0, c1 and c2.
+ * The Z offset is expected to have consecutive names.
+ * E.g., for M0=3 and Z=zin, the expected z offset names are zin0, zin1 and zin2.
+ *
+ * @param[in] M0               The number of rows to store, for non-partial blocks. Supported: 1-16
+ * @param[in] N0               The size of each vector, for non-partial blocks. Supported: 1, 2, 3, 4, 8, 16
+ * @param[in] DATA_TYPE        The data type of the vectors
+ * @param[in] BASENAME         The basename of the variables
+ * @param[in] PTR              The base pointer
+ * @param[in] STRIDE_Y         The stride value in y-axis direction
+ * @param[in] Z                The offset in z-axis direction
+ * @param[in] PARTIAL_STORE_M0 The partial size in y, for partial blocks. Supported range: [1, @p M0)
+ * @param[in] PARTIAL_COND_Y   Condition on the y axis to perform the partial store Y. True to use PARTIAL_STORE_M0 rather than M0.
+ */
+#define STORE_BLOCK_PARTIAL_IN_Y(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z, PARTIAL_STORE_M0, PARTIAL_COND_Y) \
+    if(!(PARTIAL_COND_Y))                                                                                         \
+    {                                                                                                     \
+        STORE_BLOCK_PARTIAL(M0, N0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z);                           \
+    }                                                                                                     \
+    else                                                                                                  \
+    {                                                                                                     \
+        STORE_BLOCK_PARTIAL(PARTIAL_STORE_M0, N0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z);             \
+    }
+/** @} */ // end of group STORE_BLOCK_PARTIAL
 
 /** Convert and store a block of the given size M0xN0
  * @name CONVERT_STORE_BLOCK
@@ -1733,6 +2890,34 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
     BASENAME##IDX_COL = (VEC_DATA_TYPE(TYPE, 16))((X##0).s##IDX_COL, (X##1).s##IDX_COL, (X##2).s##IDX_COL, (X##3).s##IDX_COL, (X##4).s##IDX_COL, (X##5).s##IDX_COL, (X##6).s##IDX_COL, (X##7).s##IDX_COL, (X##8).s##IDX_COL, (X##9).s##IDX_COL, (X##A).s##IDX_COL, (X##B).s##IDX_COL, (X##C).s##IDX_COL, (X##D).s##IDX_COL, (X##E).s##IDX_COL, (X##F).s##IDX_COL);
 /** @} */ // end of group COLUMN_VECTORn
 
+/** Create a new vector containing the values at the given index. Utility macros for transposing a colum-vector
+ * @name COLUMN_VECTOR_SCALARn
+ *
+ * @param[in] IDX_COL  The index value
+ * @param[in] BASENAME The basename of the destination vectors
+ * @param[in] X        The basename of the source vectors
+ * @param[in] TYPE     The data type of the destination vectors
+ * @{
+ */
+#define COLUMN_VECTOR_SCALAR1(IDX_COL, BASENAME, X, TYPE) \
+    TYPE BASENAME##IDX_COL = (TYPE)((X##0));
+#define COLUMN_VECTOR_SCALAR2(IDX_COL, BASENAME, X, TYPE) \
+    VEC_DATA_TYPE(TYPE, 2)                                \
+    BASENAME##IDX_COL = (VEC_DATA_TYPE(TYPE, 2))((X##0), (X##1));
+#define COLUMN_VECTOR_SCALAR3(IDX_COL, BASENAME, X, TYPE) \
+    VEC_DATA_TYPE(TYPE, 3)                                \
+    BASENAME##IDX_COL = (VEC_DATA_TYPE(TYPE, 3))((X##0), (X##1), (X##2));
+#define COLUMN_VECTOR_SCALAR4(IDX_COL, BASENAME, X, TYPE) \
+    VEC_DATA_TYPE(TYPE, 4)                                \
+    BASENAME##IDX_COL = (VEC_DATA_TYPE(TYPE, 4))((X##0), (X##1), (X##2), (X##3));
+#define COLUMN_VECTOR_SCALAR8(IDX_COL, BASENAME, X, TYPE) \
+    VEC_DATA_TYPE(TYPE, 8)                                \
+    BASENAME##IDX_COL = (VEC_DATA_TYPE(TYPE, 8))((X##0), (X##1), (X##2), (X##3), (X##4), (X##5), (X##6), (X##7));
+#define COLUMN_VECTOR_SCALAR16(IDX_COL, BASENAME, X, TYPE) \
+    VEC_DATA_TYPE(TYPE, 16)                                \
+    BASENAME##IDX_COL = (VEC_DATA_TYPE(TYPE, 16))((X##0), (X##1), (X##2), (X##3), (X##4), (X##5), (X##6), (X##7), (X##8), (X##9), (X##A), (X##B), (X##C), (X##D), (X##E), (X##F));
+/** @} */ // end of group COLUMN_VECTORn
+
 /** Create transposed vectors of the given vectors
  * @name TRANSPOSE_K0Xn
  *
@@ -1743,9 +2928,9 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
  * @{
  */
 #define TRANSPOSE_K0X1(K0, BASENAME, B, TYPE) \
-    COLUMN_VECTOR(K0, 0, BASENAME, B, TYPE);
+    COLUMN_VECTOR_SCALAR(K0, 0, BASENAME, B, TYPE);
 #define TRANSPOSE_K0X2(K0, BASENAME, B, TYPE) \
-    TRANSPOSE_K0X1(K0, BASENAME, B, TYPE);    \
+    COLUMN_VECTOR(K0, 0, BASENAME, B, TYPE);  \
     COLUMN_VECTOR(K0, 1, BASENAME, B, TYPE);
 #define TRANSPOSE_K0X3(K0, BASENAME, B, TYPE) \
     TRANSPOSE_K0X2(K0, BASENAME, B, TYPE);    \
@@ -1782,6 +2967,18 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
  */
 #define COLUMN_VECTOR(K0, IDX_COL, BASENAME, B, TYPE) \
     CONCAT(COLUMN_VECTOR, K0)                         \
+    (IDX_COL, BASENAME, B, TYPE);
+
+/** Create column vectors to contain the values at the given index. Utility macro for transposing a column-vector
+ *
+ * @param[in] K0       The number of source vectors
+ * @param[in] IDX_COL  The index value
+ * @param[in] BASENAME The basename of the destination vectors
+ * @param[in] B        The basename of the source vectors
+ * @param[in] TYPE     The data type of the destination vectors
+ */
+#define COLUMN_VECTOR_SCALAR(K0, IDX_COL, BASENAME, B, TYPE) \
+    CONCAT(COLUMN_VECTOR_SCALAR, K0)                         \
     (IDX_COL, BASENAME, B, TYPE);
 
 /** Create transposed vectors form the given source vectors
@@ -2160,5 +3357,114 @@ inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int 
 #define CONVERT_BLOCK_STR(M, N, DATA_TYPE, BASENAME_SRC, BASENAME_DST) CONVERT_ROW_##M(N, DATA_TYPE, BASENAME_SRC, BASENAME_DST)
 #define CONVERT_BLOCK(M, N, DATA_TYPE, BASENAME_SRC, BASENAME_DST) CONVERT_BLOCK_STR(M, N, DATA_TYPE, BASENAME_SRC, BASENAME_DST)
 /** @} */ // end of group CONVERT_BLOCK
+
+#if defined(PARTIAL_STORE_M0) && defined(PARTIAL_STORE_N0)
+
+/** Boundary-aware GEMM block store
+ * @name STORE_BLOCK_BOUNDARY_AWARE
+ * This macro assumes the following schemes to achieve boundary-awareness:
+ *  - Overlapping load in Y axis from lhs tensor. This implies lhs has no padding along y dim.
+ *  - Non-Overlapping(normal) load from rhs tensor. This imples rhs can have paddings.
+ *  - Overlapping load in Y axis from bias tensor. This implies rhs has no padding along y dim.
+ * The macro then ensures that the dst tensor can be stored without any paddings in both x and y dim.
+ *
+ * In the y dimension, we place the partial blocks **at the beginning** while in the x dimension, we place the partial
+ * blocks **at the end**.
+ * Say, the dst tensor is of shape MxN and we have M0 and N0 as the block size, this is how we define "partial blocks"/
+ * "boundary block" (we use the 2 terms "partial blocks" and "boundary blocks" interchangeably) and its various parameters:
+ *
+ *  *--x-->                         x == 0                        x == 1
+ *  |                  |<------------------------------N-------------------------->|
+ *  y                  |<--------------N0------------->|<----PARTIAL_STORE_N0----->|
+ *  |     -------------#############################################################
+ *  *     |          | |...............................|...........................|
+ * y == 0 | PAR_..._M0 |......Boundary block in y......|.Boundary block in x and y.|
+ *        |          | |...............................|...........................|
+ *        M          --#############################################################
+ *        |          | |                               |...........................|
+ * y == 1 |         M0 |      Non-boundary block       |....Boundary block in x....|
+ *        |          | |                               |...........................|
+ *        |------------#############################################################
+ *
+ * Then @p PARTIAL_STORE_M0 = M % M0      and @p PARTIAL_STORE_N0 = N % N0
+ *
+ * @note in cases @p PARTIAL_STORE_N0 != 1, 2, 3, 4, 8, 16, extra vstore(s) will be invoked, thus incurring small performance penalty.
+ *
+ * It automatically detects if a giving M,N,M0,N0 combination can yield partial blocks in either X and Y dimension,
+ * and select corresponding store methods such that the boundary detection logic is only added when needed.
+ *
+ * The data to store is expected to have consecutive names for each row.
+ * E.g., for M0=3 and basename=c, the expected names are c0, c1 and c2.
+ * The Z offset is expected to have consecutive names.
+ * E.g., for M0=3 and Z=zin, the expected z offset names are zin0, zin1 and zin2.
+ *
+ * @param[in] M0               The number of rows to store, for non-partial blocks. Supported: 1-16
+ * @param[in] N0               The size of each vector, for non-partial blocks. Supported: 1, 2, 3, 4, 8, 16
+ * @param[in] DATA_TYPE        The data type of the vectors
+ * @param[in] BASENAME         The basename of the variables
+ * @param[in] PTR              The base pointer
+ * @param[in] STRIDE_Y         The stride value in y-axis direction
+ * @param[in] Z                The offset in z-axis direction
+ * @param[in] PARTIAL_STORE_M0 The partial size in y, for partial blocks. Supported: [0, @p M0)
+ * @param[in] PARTIAL_STORE_N0 The partial size in x, for partial blocks. Supported: [0, @p N0)
+ * @param[in] N                Total number of columns. Used to detect if current block is at the boundary in x.
+ * @param[in] PARTIAL_COND_Y   Condition on the y axis to perform the partial store Y. True to use PARTIAL_STORE_M0 rather than M0.
+ * @param[in] PARTIAL_COND_X   Condition on the x axis to perform the partial store X. True to use PARTIAL_STORE_N0 rather than N0.
+ * @{
+ */
+#if PARTIAL_STORE_M0 == 0 && PARTIAL_STORE_N0 == 0
+// Case1: No partial blocks in either x or y
+#define STORE_BLOCK_BOUNDARY_AWARE(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z, PARTIAL_STORE_M0, PARTIAL_STORE_N0, N, PARTIAL_COND_Y, PARTIAL_COND_X) \
+    STORE_BLOCK(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)
+
+#elif PARTIAL_STORE_M0 > 0 && PARTIAL_STORE_N0 == 0
+// Case2: Partial blocks in y
+#define STORE_BLOCK_BOUNDARY_AWARE(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z, PARTIAL_STORE_M0, PARTIAL_STORE_N0, N, PARTIAL_COND_Y, PARTIAL_COND_X) \
+    STORE_BLOCK_PARTIAL_IN_Y(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z, PARTIAL_STORE_M0, PARTIAL_COND_Y)
+
+#elif PARTIAL_STORE_M0 == 0 && PARTIAL_STORE_N0 > 0
+// Case3: Partial blocks in x
+#define STORE_BLOCK_BOUNDARY_AWARE(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z, PARTIAL_STORE_M0, PARTIAL_STORE_N0, N, PARTIAL_COND_Y, PARTIAL_COND_X) \
+    STORE_BLOCK_PARTIAL_IN_X(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z, PARTIAL_STORE_N0, N, PARTIAL_COND_X)
+
+#else // PARTIAL_STORE_M0 == 0 && PARTIAL_STORE_N0 == 0
+// Case4: Partial blocks in both x and y
+#define STORE_BLOCK_BOUNDARY_AWARE(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z, PARTIAL_STORE_M0, PARTIAL_STORE_N0, N, PARTIAL_COND_Y, PARTIAL_COND_X) \
+    STORE_BLOCK_PARTIAL_IN_X_AND_Y(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z, PARTIAL_STORE_M0, PARTIAL_STORE_N0, N, PARTIAL_COND_Y, PARTIAL_COND_X)
+
+#endif // PARTIAL_STORE_M0 == 0 && PARTIAL_STORE_N0 == 0
+
+#else // defined(PARTIAL_STORE_M0) && defined(PARTIAL_STORE_N0)
+
+#define STORE_BLOCK_BOUNDARY_AWARE(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z, PARTIAL_STORE_M0, PARTIAL_STORE_N0, N, PARTIAL_COND_Y, PARTIAL_COND_X) \
+    STORE_BLOCK(M0, N0, DATA_TYPE, BASENAME, PTR, STRIDE_Y, Z)
+
+#endif    // defined(PARTIAL_STORE_M0) && defined(PARTIAL_STORE_N0)
+/** @} */ // end of group STORE_BLOCK_BOUNDARY_AWARE
+
+#if defined(PARTIAL_STORE_M0)
+/** Compute the start m0 row (LHS, BIAS and DST) in a boundary-aware way so as to avoid padding
+ * @name COMPUTE_M0_START_ROW
+ * If there're any partial blocks in y dimension, they are placed at the beginning of the rows.
+ * This shift amount is added to all rows such that the partial block (at the beginning) overlaps with the subsequent
+ * blocks in the y dimension to avoid any padding.
+ * EG: M0=4, PARTIAL_STORE_M0=1:
+ *                  | Non-overlapping | +M0_ROW_SHIFT (Overlapping)
+ * block 0 (partial)| start row = 0   | start row = 0
+ * block 1 (full)   | start row = 4   | start row = 1
+ * block 2 (full)   | start row = 8   | start row = 5
+ *
+ * @param[in] y                Global id of current block in y.
+ * @param[in] M0               The number of rows to store, for non-partial blocks. Supported: 1-16
+ * @param[in] PARTIAL_STORE_M0 The partial size in y, for partial blocks. Supported: [0, @p M0)
+ * @{
+ */
+#define COMPUTE_M0_START_ROW(y, M0, PARTIAL_STORE_M0) \
+    ((uint)(max(0, (int)(y * M0) - (int)((M0 - PARTIAL_STORE_M0) % M0))))
+#else // defined(PARTIAL_STORE_M0)
+#define COMPUTE_M0_START_ROW(y, M0, PARTIAL_STORE_M0) \
+    ((uint)(y * M0))
+#endif    // defined(PARTIAL_STORE_M0)
+/** @} */ // end of group COMPUTE_M0_START_ROW
 
 )"

@@ -1,7 +1,7 @@
 R"(
 
 /*
- * Copyright (c) 2017-2020 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,7 +24,7 @@ R"(
  * SOFTWARE.
  */
 /*
- * Copyright (c) 2016-2020 ARM Limited.
+ * Copyright (c) 2016-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -219,6 +219,49 @@ R"(
 #define VLOAD_STR(size) vload##size
 #define VLOAD(size) VLOAD_STR(size)
 
+#define PIXEL_UNIT4 1
+#define PIXEL_UNIT8 2
+#define PIXEL_UNIT16 4
+
+/** Utility macro to convert a vector size in pixel unit.
+ *
+ * @name CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT
+ *
+ * @param[in] vec_size Vector size. Only 4,8 and 16 is supported
+ *
+ * @return The pixel unit (number of pixels)
+ * @{
+ */
+#define CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT_STR(vec_size) PIXEL_UNIT##vec_size
+#define CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT(vec_size) CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT_STR(vec_size)
+/** @} */ // end of group CONVERT_VECTOR_SIZE_TO_PIXEL_UNIT
+
+#define read_image2d_floatx1(img, x_coord, y_coord) (float4)(read_imagef(img, (int2)(x_coord, y_coord)));
+#define read_image2d_floatx2(img, x_coord, y_coord) (float8)(read_imagef(img, (int2)(x_coord, y_coord)), read_imagef(img, (int2)(x_coord + 1, y_coord)));
+#define read_image2d_floatx4(img, x_coord, y_coord) (float16)(read_imagef(img, (int2)(x_coord, y_coord)), read_imagef(img, (int2)(x_coord + 1, y_coord)), read_imagef(img, (int2)(x_coord + 2, y_coord)), read_imagef(img, (int2)(x_coord + 3, y_coord)));
+
+#if defined(ARM_COMPUTE_OPENCL_FP16_ENABLED) && defined(cl_khr_fp16)
+#define read_image2d_halfx1(img, x_coord, y_coord) (half4)(read_imageh(img, (int2)(x_coord, y_coord)));
+#define read_image2d_halfx2(img, x_coord, y_coord) (half8)(read_imageh(img, (int2)(x_coord, y_coord)), read_imageh(img, (int2)(x_coord + 1, y_coord)));
+#define read_image2d_halfx4(img, x_coord, y_coord) (half16)(read_imageh(img, (int2)(x_coord, y_coord)), read_imageh(img, (int2)(x_coord + 1, y_coord)), read_imageh(img, (int2)(x_coord + 2, y_coord)), read_imageh(img, (int2)(x_coord + 3, y_coord)));
+#endif // defined(ARM_COMPUTE_OPENCL_FP16_ENABLED) && defined(cl_khr_fp16)
+
+/** Utility macro to read a 2D OpenCL image object.
+ *
+ * @note Coordinates are not normalized
+ *
+ * @param[in] data_type Data type
+ * @param[in] n0        Number of pixel to read. Only 1,2 and 4 is supported
+ * @param[in] img       OpenCL image object
+ * @param[in] x_coord   The x coordinate for the top-left pixel
+ * @param[in] y_coord   The y coordinate for the top-left pixel
+ *
+ * @return Pixels from the 2D OpenCL image object
+ * @{
+ */
+#define READ_IMAGE2D_STR(data_type, n0, img, x_coord, y_coord) read_image2d_##data_type##x##n0(img, x_coord, y_coord)
+#define READ_IMAGE2D(data_type, n0, img, x_coord, y_coord) READ_IMAGE2D_STR(data_type, n0, img, x_coord, y_coord)
+
 #define VSTORE_STR(size) vstore##size
 #define VSTORE(size) VSTORE_STR(size)
 
@@ -236,6 +279,142 @@ R"(
 
 #define vload1(OFFSET, PTR) *(OFFSET + PTR)
 #define vstore1(DATA, OFFSET, PTR) *(OFFSET + PTR) = DATA
+
+/** Extended partial vstore that correctly handles scalar values as well.
+ * Store the **lower** 0 to (n-1)th elements of the given vector while minimising the amount of vstore ops
+ * @name VSTORE_PARTIAL
+ *
+ * @note With this macro, the passed data can be both a vector and a scalar
+ * @note @p store_size needs to be <= @p size
+ * eg 1: Valid
+ * VSTORE_PARTIAL(16, 15) ...;
+ * eg 2: Invalid
+ * VSTORE_PARTIAL(4, 7) ...;
+ *
+ * @param[in] size       The width of @p DATA. Supported values: 1(scalar), 2, 3, 4, 8, 16
+ * @param[in] store_size The number of lower elements to store. Supported values: 1-16, but has to be <= @p size
+ * @{
+ */
+#define VSTORE_PARTIAL_STR(size, store_size) vstore_partial_##size##_##store_size
+#define VSTORE_PARTIAL(size, store_size) VSTORE_PARTIAL_STR(size, store_size)
+
+// Size == 1 (scalar)
+#define vstore_partial_1_1 vstore1
+// Size == 2
+#define vstore_partial_2_1 vstore_partial_1
+#define vstore_partial_2_2 vstore_partial_2
+// Size == 3
+#define vstore_partial_3_1 vstore_partial_1
+#define vstore_partial_3_2 vstore_partial_2
+#define vstore_partial_3_3 vstore_partial_3
+// Size == 4
+#define vstore_partial_4_1 vstore_partial_1
+#define vstore_partial_4_2 vstore_partial_2
+#define vstore_partial_4_3 vstore_partial_3
+#define vstore_partial_4_4 vstore_partial_4
+// Size == 8
+#define vstore_partial_8_1 vstore_partial_1
+#define vstore_partial_8_2 vstore_partial_2
+#define vstore_partial_8_3 vstore_partial_3
+#define vstore_partial_8_4 vstore_partial_4
+#define vstore_partial_8_5 vstore_partial_5
+#define vstore_partial_8_6 vstore_partial_6
+#define vstore_partial_8_7 vstore_partial_7
+#define vstore_partial_8_8 vstore_partial_8
+// Size == 16
+#define vstore_partial_16_1 vstore_partial_1
+#define vstore_partial_16_2 vstore_partial_2
+#define vstore_partial_16_3 vstore_partial_3
+#define vstore_partial_16_4 vstore_partial_4
+#define vstore_partial_16_5 vstore_partial_5
+#define vstore_partial_16_6 vstore_partial_6
+#define vstore_partial_16_7 vstore_partial_7
+#define vstore_partial_16_8 vstore_partial_8
+#define vstore_partial_16_9 vstore_partial_9
+#define vstore_partial_16_10 vstore_partial_10
+#define vstore_partial_16_11 vstore_partial_11
+#define vstore_partial_16_12 vstore_partial_12
+#define vstore_partial_16_13 vstore_partial_13
+#define vstore_partial_16_14 vstore_partial_14
+#define vstore_partial_16_15 vstore_partial_15
+#define vstore_partial_16_16 vstore_partial_16
+
+/** Partial vstore. Store the **lower** 0 to (n-1)th elements of the given vector while minimising the amount of vstore ops
+ * @name vstore_partial_n
+ *
+ * @note @p DATA needs to be a vector not a scalar
+ * @note n needs to be <= the vector width of the input variable @p DATA
+ * eg 1: Valid
+ * vstore_partial_15(var:float16, 0, 0xabcd);
+ * eg 2: Invalid
+ * vstore_partial_7(var:float4, 0, 0xabcd);
+ *
+ * @note in cases n == 1, 2, 3, 4, 8, 16, no extra vstore is invoked, thus there's no performance penalty.
+ *
+ * @param[in] DATA   The name of the variable
+ * @param[in] OFFSET Offset in n
+ * @param[in] PTR    The base pointer
+ * @{
+ */
+#define vstore_partial_1(DATA, OFFSET, PTR) \
+    vstore1(DATA.s0, OFFSET, PTR);
+
+#define vstore_partial_2(DATA, OFFSET, PTR) \
+    vstore2(DATA.s01, OFFSET, PTR);
+
+#define vstore_partial_3(DATA, OFFSET, PTR) \
+    vstore3(DATA.s012, OFFSET, PTR);
+
+#define vstore_partial_4(DATA, OFFSET, PTR) \
+    vstore4(DATA.s0123, OFFSET, PTR);
+
+#define vstore_partial_5(DATA, OFFSET, PTR)    \
+    vstore_partial_4(DATA.s0123, OFFSET, PTR); \
+    vstore1(DATA.s4, OFFSET, PTR + 4);
+
+#define vstore_partial_6(DATA, OFFSET, PTR)    \
+    vstore_partial_4(DATA.s0123, OFFSET, PTR); \
+    vstore_partial_2(DATA.s45, OFFSET, PTR + 4);
+
+#define vstore_partial_7(DATA, OFFSET, PTR)    \
+    vstore_partial_4(DATA.s0123, OFFSET, PTR); \
+    vstore_partial_3(DATA.s456, OFFSET, PTR + 4);
+
+#define vstore_partial_8(DATA, OFFSET, PTR) \
+    vstore8(DATA.s01234567, OFFSET, PTR);
+
+#define vstore_partial_9(DATA, OFFSET, PTR)        \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore1(DATA.s8, OFFSET, PTR + 8);
+
+#define vstore_partial_10(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_2(DATA.s89, OFFSET, PTR + 8);
+
+#define vstore_partial_11(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_3(DATA.s89a, OFFSET, PTR + 8);
+
+#define vstore_partial_12(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_4(DATA.s89ab, OFFSET, PTR + 8);
+
+#define vstore_partial_13(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_5(DATA.s89abc, OFFSET, PTR + 8);
+
+#define vstore_partial_14(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_6(DATA.s89abcd, OFFSET, PTR + 8);
+
+#define vstore_partial_15(DATA, OFFSET, PTR)       \
+    vstore_partial_8(DATA.s01234567, OFFSET, PTR); \
+    vstore_partial_7(DATA.s89abcde, OFFSET, PTR + 8);
+
+#define vstore_partial_16(DATA, OFFSET, PTR) \
+    vstore16(DATA, OFFSET, PTR);
+/** @} */ // end of groupd vstore_partial_n
+/** @} */ // end of groupd VSTORE_PARTIAL
 
 // Convert built-in functions with _sat modifier are not supported in floating point so we create defines
 // without _sat to overcome this issue
@@ -361,6 +540,10 @@ R"(
 
 #define CONVERT_TO_TENSOR4D_STRUCT_NO_STEP(name, mod_size) \
     update_tensor4D_workitem_ptr(name##_ptr, name##_offset_first_element_in_bytes, name##_stride_x, 0, name##_stride_y, 0, name##_stride_z, 0, name##_stride_w, 0, mod_size)
+
+#define CONVERT_TO_TENSOR3D_STRUCT_NO_UPDATE_PTR(name)                                                                                       \
+    tensor3D_ptr_no_update(name##_ptr, name##_offset_first_element_in_bytes, name##_stride_x, name##_step_x, name##_stride_y, name##_step_y, \
+                           name##_stride_z, name##_step_z)
 
 /** Structure to hold Vector information */
 typedef struct Vector
@@ -498,6 +681,32 @@ inline Tensor3D update_tensor3D_workitem_ptr(__global uchar *ptr, uint offset_fi
     return tensor;
 }
 
+/** Wrap 3D tensor information into an tensor structure.
+ *
+ * @param[in] ptr                           Pointer to the starting postion of the buffer
+ * @param[in] offset_first_element_in_bytes The offset of the first element in the source image
+ * @param[in] stride_x                      Stride of the image in X dimension (in bytes)
+ * @param[in] step_x                        stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in] stride_y                      Stride of the image in Y dimension (in bytes)
+ * @param[in] step_y                        stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in] stride_z                      Stride of the image in Z dimension (in bytes)
+ * @param[in] step_z                        stride_z * number of elements along Z processed per workitem(in bytes)
+ *
+ * @return A 3D tensor object
+ */
+inline Tensor3D tensor3D_ptr_no_update(__global uchar *ptr, uint offset_first_element_in_bytes, uint stride_x, uint step_x, uint stride_y, uint step_y, uint stride_z, uint step_z)
+{
+    Tensor3D tensor =
+    {
+        .ptr                           = ptr,
+        .offset_first_element_in_bytes = offset_first_element_in_bytes,
+        .stride_x                      = stride_x,
+        .stride_y                      = stride_y,
+        .stride_z                      = stride_z
+    };
+    return tensor;
+}
+
 inline Tensor4D update_tensor4D_workitem_ptr(__global uchar *ptr, uint offset_first_element_in_bytes, uint stride_x, uint step_x, uint stride_y, uint step_y, uint stride_z, uint step_z, uint stride_w,
                                              uint step_w,
                                              uint mod_size)
@@ -560,6 +769,31 @@ inline __global const uchar *tensor3D_offset(const Tensor3D *tensor, int x, int 
 inline __global const uchar *tensor4D_offset(const Tensor4D *tensor, int x, int y, int z, int w)
 {
     return tensor->ptr + x * tensor->stride_x + y * tensor->stride_y + z * tensor->stride_z + w * tensor->stride_w;
+}
+
+/** Get the offset for a given linear index of a Tensor3D
+ *
+ * @param[in] tensor Pointer to the starting position of the buffer
+ * @param[in] width  Width of the input tensor
+ * @param[in] height Height of the input tensor
+ * @param[in] depth  Depth of the input tensor
+ * @param[in] index  Linear index
+ */
+inline __global const uchar *tensor3D_index2ptr(const Tensor3D *tensor, uint width, uint height, uint depth, uint index)
+{
+    uint num_elements = width * height;
+
+    const uint z = index / num_elements;
+
+    index %= num_elements;
+
+    const uint y = index / width;
+
+    index %= width;
+
+    const uint x = index;
+
+    return tensor->ptr + x * tensor->stride_x + y * tensor->stride_y + z * tensor->stride_z + tensor->offset_first_element_in_bytes;
 }
 
 #endif // _HELPER_H
@@ -733,22 +967,22 @@ ACC_DATA_TYPE calculate_avg_scale(const int pool_size_x, const int pool_size_y, 
  *       -DSTRIDE_X and -DSTRIDE_Y which are the steps of the window along the x and y directions
  *       -DPAD_X and -DPAD_Y which are the pooling paddings in x and y dimension
  *
- * @param[in]  input_ptr                            Pointer to the source image. Supported data types: F16/F32
- * @param[in]  input_stride_x                       Stride of the source image in X dimension (in bytes)
+ * @param[in]  input_ptr                            Pointer to the source tensor. Supported data types: F16/F32
+ * @param[in]  input_stride_x                       Stride of the source tensor in X dimension (in bytes)
  * @param[in]  input_step_x                         input_stride_x * number of elements along X processed per workitem(in bytes)
- * @param[in]  input_stride_y                       Stride of the source image in Y dimension (in bytes)
+ * @param[in]  input_stride_y                       Stride of the source tensor in Y dimension (in bytes)
  * @param[in]  input_step_y                         input_stride_y * number of elements along Y processed per workitem(in bytes)
  * @param[in]  input_stride_z                       Stride of the source tensor in Z dimension (in bytes)
  * @param[in]  input_step_z                         input_stride_z * number of elements along Z processed per workitem(in bytes)
- * @param[in]  input_offset_first_element_in_bytes  The offset of the first element in the source image
- * @param[out] output_ptr                           Pointer to the destination image. Supported data types: same as @p input_ptr
- * @param[in]  output_stride_x                      Stride of the destination image in X dimension (in bytes)
+ * @param[in]  input_offset_first_element_in_bytes  The offset of the first element in the source tensor
+ * @param[out] output_ptr                           Pointer to the destination tensor. Supported data types: same as @p input_ptr
+ * @param[in]  output_stride_x                      Stride of the destination tensor in X dimension (in bytes)
  * @param[in]  output_step_x                        output_stride_x * number of elements along X processed per workitem(in bytes)
- * @param[in]  output_stride_y                      Stride of the destination image in Y dimension (in bytes)
+ * @param[in]  output_stride_y                      Stride of the destination tensor in Y dimension (in bytes)
  * @param[in]  output_step_y                        output_stride_y * number of elements along Y processed per workitem(in bytes)
  * @param[in]  output_stride_z                      Stride of the source tensor in Z dimension (in bytes)
  * @param[in]  output_step_z                        output_stride_z * number of elements along Z processed per workitem(in bytes)
- * @param[in]  output_offset_first_element_in_bytes The offset of the first element in the destination image
+ * @param[in]  output_offset_first_element_in_bytes The offset of the first element in the destination tensor
  */
 __kernel void pooling_layer_2(
     TENSOR3D_DECLARATION(input),
@@ -797,22 +1031,22 @@ __kernel void pooling_layer_2(
  *       -DSTRIDE_X and -DSTRIDE_Y which are the steps of the window along the x and y directions
  *       -DPAD_X and -DPAD_Y which are the pooling paddings in x and y dimension
  *
- * @param[in]  input_ptr                            Pointer to the source image. Supported data types: F16/F32
- * @param[in]  input_stride_x                       Stride of the source image in X dimension (in bytes)
+ * @param[in]  input_ptr                            Pointer to the source tensor. Supported data types: F16/F32
+ * @param[in]  input_stride_x                       Stride of the source tensor in X dimension (in bytes)
  * @param[in]  input_step_x                         input_stride_x * number of elements along X processed per workitem(in bytes)
- * @param[in]  input_stride_y                       Stride of the source image in Y dimension (in bytes)
+ * @param[in]  input_stride_y                       Stride of the source tensor in Y dimension (in bytes)
  * @param[in]  input_step_y                         input_stride_y * number of elements along Y processed per workitem(in bytes)
  * @param[in]  input_stride_z                       Stride of the source tensor in Z dimension (in bytes)
  * @param[in]  input_step_z                         input_stride_z * number of elements along Z processed per workitem(in bytes)
- * @param[in]  input_offset_first_element_in_bytes  The offset of the first element in the source image
- * @param[out] output_ptr                           Pointer to the destination image. Supported data types: same as @p input_ptr
- * @param[in]  output_stride_x                      Stride of the destination image in X dimension (in bytes)
+ * @param[in]  input_offset_first_element_in_bytes  The offset of the first element in the source tensor
+ * @param[out] output_ptr                           Pointer to the destination tensor. Supported data types: same as @p input_ptr
+ * @param[in]  output_stride_x                      Stride of the destination tensor in X dimension (in bytes)
  * @param[in]  output_step_x                        output_stride_x * number of elements along X processed per workitem(in bytes)
- * @param[in]  output_stride_y                      Stride of the destination image in Y dimension (in bytes)
+ * @param[in]  output_stride_y                      Stride of the destination tensor in Y dimension (in bytes)
  * @param[in]  output_step_y                        output_stride_y * number of elements along Y processed per workitem(in bytes)
  * @param[in]  output_stride_z                      Stride of the source tensor in Z dimension (in bytes)
  * @param[in]  output_step_z                        output_stride_z * number of elements along Z processed per workitem(in bytes)
- * @param[in]  output_offset_first_element_in_bytes The offset of the first element in the destination image
+ * @param[in]  output_offset_first_element_in_bytes The offset of the first element in the destination tensor
  */
 __kernel void pooling_layer_3(
     TENSOR3D_DECLARATION(input),
@@ -885,22 +1119,22 @@ calculate_avg_scale4(const int pool_size, const int upper_bound_w, const int upp
  *       -DSTRIDE_X and -DSTRIDE_Y which are the steps of the window along the x and y directions
  *       -DPAD_X and -DPAD_Y which are the pooling paddings in x and y dimension
  *
- * @param[in]  input_ptr                            Pointer to the source image. Supported data types: F16/F32
- * @param[in]  input_stride_x                       Stride of the source image in X dimension (in bytes)
+ * @param[in]  input_ptr                            Pointer to the source tensor. Supported data types: F16/F32
+ * @param[in]  input_stride_x                       Stride of the source tensor in X dimension (in bytes)
  * @param[in]  input_step_x                         input_stride_x * number of elements along X processed per workitem(in bytes)
- * @param[in]  input_stride_y                       Stride of the source image in Y dimension (in bytes)
+ * @param[in]  input_stride_y                       Stride of the source tensor in Y dimension (in bytes)
  * @param[in]  input_step_y                         input_stride_y * number of elements along Y processed per workitem(in bytes)
  * @param[in]  input_stride_z                       Stride of the source tensor in Z dimension (in bytes)
  * @param[in]  input_step_z                         input_stride_z * number of elements along Z processed per workitem(in bytes)
- * @param[in]  input_offset_first_element_in_bytes  The offset of the first element in the source image
- * @param[out] output_ptr                           Pointer to the destination image. Supported data types: same as @p input_ptr
- * @param[in]  output_stride_x                      Stride of the destination image in X dimension (in bytes)
+ * @param[in]  input_offset_first_element_in_bytes  The offset of the first element in the source tensor
+ * @param[out] output_ptr                           Pointer to the destination tensor. Supported data types: same as @p input_ptr
+ * @param[in]  output_stride_x                      Stride of the destination tensor in X dimension (in bytes)
  * @param[in]  output_step_x                        output_stride_x * number of elements along X processed per workitem(in bytes)
- * @param[in]  output_stride_y                      Stride of the destination image in Y dimension (in bytes)
+ * @param[in]  output_stride_y                      Stride of the destination tensor in Y dimension (in bytes)
  * @param[in]  output_step_y                        output_stride_y * number of elements along Y processed per workitem(in bytes)
  * @param[in]  output_stride_z                      Stride of the source tensor in Z dimension (in bytes)
  * @param[in]  output_step_z                        output_stride_z * number of elements along Z processed per workitem(in bytes)
- * @param[in]  output_offset_first_element_in_bytes The offset of the first element in the destination image
+ * @param[in]  output_offset_first_element_in_bytes The offset of the first element in the destination tensor
  */
 __kernel void pooling_layer_optimized_3(
     TENSOR3D_DECLARATION(input),
@@ -943,22 +1177,22 @@ __kernel void pooling_layer_optimized_3(
  *       -DPAD_X and -DPAD_Y which are the pooling paddings in x and y dimension
  * @note The initial value for the pooling operation must be passed at compile time using -DINITIAL_VALUE e.g. -DINITIAL_VALUE=0
  *
- * @param[in]  input_ptr                            Pointer to the source image. Supported data types: F16/F32
- * @param[in]  input_stride_x                       Stride of the source image in X dimension (in bytes)
+ * @param[in]  input_ptr                            Pointer to the source tensor. Supported data types: F16/F32
+ * @param[in]  input_stride_x                       Stride of the source tensor in X dimension (in bytes)
  * @param[in]  input_step_x                         input_stride_x * number of elements along X processed per workitem(in bytes)
- * @param[in]  input_stride_y                       Stride of the source image in Y dimension (in bytes)
+ * @param[in]  input_stride_y                       Stride of the source tensor in Y dimension (in bytes)
  * @param[in]  input_step_y                         input_stride_y * number of elements along Y processed per workitem(in bytes)
  * @param[in]  input_stride_z                       Stride of the source tensor in Z dimension (in bytes)
  * @param[in]  input_step_z                         input_stride_z * number of elements along Z processed per workitem(in bytes)
- * @param[in]  input_offset_first_element_in_bytes  The offset of the first element in the source image
- * @param[out] output_ptr                           Pointer to the destination image. Supported data types: same as @p input_ptr
- * @param[in]  output_stride_x                      Stride of the destination image in X dimension (in bytes)
+ * @param[in]  input_offset_first_element_in_bytes  The offset of the first element in the source tensor
+ * @param[out] output_ptr                           Pointer to the destination tensor. Supported data types: same as @p input_ptr
+ * @param[in]  output_stride_x                      Stride of the destination tensor in X dimension (in bytes)
  * @param[in]  output_step_x                        output_stride_x * number of elements along X processed per workitem(in bytes)
- * @param[in]  output_stride_y                      Stride of the destination image in Y dimension (in bytes)
+ * @param[in]  output_stride_y                      Stride of the destination tensor in Y dimension (in bytes)
  * @param[in]  output_step_y                        output_stride_y * number of elements along Y processed per workitem(in bytes)
  * @param[in]  output_stride_z                      Stride of the source tensor in Z dimension (in bytes)
  * @param[in]  output_step_z                        output_stride_z * number of elements along Z processed per workitem(in bytes)
- * @param[in]  output_offset_first_element_in_bytes The offset of the first element in the destination image
+ * @param[in]  output_offset_first_element_in_bytes The offset of the first element in the destination tensor
  */
 __kernel void pooling_layer_MxN_nchw(
     TENSOR3D_DECLARATION(input),
@@ -1056,17 +1290,17 @@ ACC_DATA_TYPE calculate_avg_scale_nhwc(const int pool_size_x, const int pool_siz
  *       -DPOOL_AVG must be provided otherwise max pooling will be performed.
  * @note The initial value for the pooling operation must be passed at compile time using -DINITIAL_VALUE e.g. -DINITIAL_VALUE=0
  *
- * @param[in]  input_ptr                            Pointer to the source image. Supported data types: F16/F32
- * @param[in]  input_stride_x                       Stride of the source image in X dimension (in bytes)
+ * @param[in]  input_ptr                            Pointer to the source tensor. Supported data types: F16/F32
+ * @param[in]  input_stride_x                       Stride of the source tensor in X dimension (in bytes)
  * @param[in]  input_step_x                         input_stride_x * number of elements along X processed per workitem(in bytes)
- * @param[in]  input_stride_y                       Stride of the source image in Y dimension (in bytes)
+ * @param[in]  input_stride_y                       Stride of the source tensor in Y dimension (in bytes)
  * @param[in]  input_step_y                         input_stride_y * number of elements along Y processed per workitem(in bytes)
  * @param[in]  input_stride_z                       Stride of the source tensor in Z dimension (in bytes)
  * @param[in]  input_step_z                         input_stride_z * number of elements along Z processed per workitem(in bytes)
  * @param[in]  input_stride_w                       Stride of the source tensor in W dimension (in bytes)
  * @param[in]  input_step_w                         input_stride_w * number of elements along W processed per workitem(in bytes)
- * @param[in]  input_offset_first_element_in_bytes  The offset of the first element in the source image
- * @param[out] output_ptr                           Pointer to the destination image. Supported data types: same as @p input_ptr
+ * @param[in]  input_offset_first_element_in_bytes  The offset of the first element in the source tensor
+ * @param[out] output_ptr                           Pointer to the destination tensor. Supported data types: same as @p input_ptr
  * @param[in]  output_stride_x                      Stride of the destination tensor in X dimension (in bytes)
  * @param[in]  output_step_x                        output_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in]  output_stride_y                      Stride of the destination tensor in Y dimension (in bytes)
@@ -1075,7 +1309,7 @@ ACC_DATA_TYPE calculate_avg_scale_nhwc(const int pool_size_x, const int pool_siz
  * @param[in]  output_step_z                        output_stride_z * number of elements along Z processed per workitem(in bytes)
  * @param[in]  output_stride_w                      Stride of the destination tensor in W dimension (in bytes)
  * @param[in]  output_step_w                        output_stride_w * number of elements along W processed per workitem(in bytes)
- * @param[in]  output_offset_first_element_in_bytes The offset of the first element in the destination image
+ * @param[in]  output_offset_first_element_in_bytes The offset of the first element in the destination tensor
  */
 __kernel void pooling_layer_MxN_nhwc(
     TENSOR4D_DECLARATION(input),
@@ -1113,7 +1347,7 @@ __kernel void pooling_layer_MxN_nhwc(
             data0 = VLOAD_AND_CONVERT_TO_ACC_DATA_TYPE(8, 0, (__global DATA_TYPE *)tensor4D_offset(&input, 0, x1 - PAD_X, y1 - PAD_Y, 0));
 #else  /* defined(DST_DEPTH) */
             VEC_DATA_TYPE(ACC_DATA_TYPE, 8)
-            data0 = VLOAD_AND_CONVERT_TO_ACC_DATA_TYPE(8, 0, (__global DATA_TYPE *)tensor3D_offset(&input, 0, x1 - PAD_X, y1 - PAD_Y));
+            data0    = VLOAD_AND_CONVERT_TO_ACC_DATA_TYPE(8, 0, (__global DATA_TYPE *)tensor3D_offset(&input, 0, x1 - PAD_X, y1 - PAD_Y));
 #endif /* defined(DST_DEPTH) */
 
 #if defined(POOL_L2)
@@ -1136,6 +1370,446 @@ __kernel void pooling_layer_MxN_nhwc(
 
     // Store result
     vstore8(CONVERT(vdata, VEC_DATA_TYPE(DATA_TYPE, 8)), 0, (__global DATA_TYPE *)output.ptr);
+}
+
+#if defined(PAD_TENSOR_LEFT) && defined(PAD_TENSOR_RIGHT) && defined(PAD_TENSOR_TOP) && defined(PAD_TENSOR_BOTTOM)
+
+inline void offset_no_padding_nchw(const Tensor3D *input, uint *offset_top, uint *offset_bottom)
+{
+    const int pad_horiz = PAD_TENSOR_LEFT + PAD_TENSOR_RIGHT;
+    const int pad_vert  = PAD_TENSOR_TOP + PAD_TENSOR_BOTTOM;
+
+    const int x = get_global_id(0) * STRIDE_X;
+    const int y = get_global_id(1) * STRIDE_Y;
+    const int z = get_global_id(2);
+
+    //x axis: width, y axis: height, z axis: component
+    const uint padded_offset = input->offset_first_element_in_bytes
+                               + x * input->stride_x
+                               + y * input->stride_y
+                               + z * input->stride_z;
+
+    const uint offset_base = padded_offset
+                             - y * pad_horiz * sizeof(DATA_TYPE)                                               /* Horizontal padding for each row */
+                             - PAD_TENSOR_TOP * input->stride_y                                                /* top padding */
+                             - z * MAX_HEIGHT * pad_horiz * sizeof(DATA_TYPE) - z * pad_vert * input->stride_y /* Z plane padding */
+                             - PAD_TENSOR_LEFT * sizeof(DATA_TYPE);
+
+#if defined(TENSOR_CHANNEL) && defined(TENSOR_WIDTH) && defined(TENSOR_HEIGHT)
+    *offset_top = (uint)((offset_base / sizeof(DATA_TYPE)) % (TENSOR_CHANNEL * TENSOR_WIDTH * TENSOR_HEIGHT));
+#else  /* defined(TENSOR_CHANNEL) && defined(TENSOR_WIDTH) && defined(TENSOR_HEIGHT) */
+    *offset_top = (uint)(offset_base / sizeof(DATA_TYPE));
+#endif /* defined(TENSOR_CHANNEL) && defined(TENSOR_WIDTH) && defined(TENSOR_HEIGHT) */
+
+    *offset_bottom = *offset_top + input->stride_y / sizeof(DATA_TYPE) - pad_horiz;
+
+    return;
+}
+
+inline void offset_no_padding_nhwc_3D(const Tensor3D *input, uint *offset_x0, uint *offset_x1, uint *offset_x2, uint *offset_x3)
+{
+    const int pad_horiz = PAD_TENSOR_LEFT + PAD_TENSOR_RIGHT;
+
+    const int x = get_global_id(0);
+    const int y = get_global_id(1) * STRIDE_X;
+    const int z = get_global_id(2) * STRIDE_Y;
+
+    //x axis: component, y axis: width, z axis: height
+    const uint padded_offset = input->offset_first_element_in_bytes
+                               + x * 8 * input->stride_x
+                               + y * input->stride_y
+                               + z * input->stride_z;
+
+    const uint offset_base = padded_offset
+                             - (z + 1) * PAD_TENSOR_TOP * input->stride_y    /* Top padding for each z plane */
+                             - y * pad_horiz * sizeof(DATA_TYPE)             /* Horizontal padding for each row */
+                             - z * MAX_WIDTH * pad_horiz * sizeof(DATA_TYPE) /* Horizontal padding for each z plane */
+                             - PAD_TENSOR_LEFT * sizeof(DATA_TYPE);
+
+    *offset_x0 = (uint)offset_base / sizeof(DATA_TYPE);
+    *offset_x1 = *offset_x0 + input->stride_y / sizeof(DATA_TYPE) - pad_horiz;
+    *offset_x2 = *offset_x0 + input->stride_z / sizeof(DATA_TYPE) - pad_horiz * MAX_WIDTH - PAD_TENSOR_TOP * input->stride_y / sizeof(DATA_TYPE);
+    *offset_x3 = *offset_x2 + input->stride_y / sizeof(DATA_TYPE) - pad_horiz;
+
+    return;
+}
+
+#if defined(DST_DEPTH)
+inline void offset_no_padding_nhwc_4D(const Tensor4D *input, uint *offset_x0, uint *offset_x1, uint *offset_x2, uint *offset_x3)
+{
+    const int pad_horiz = PAD_TENSOR_LEFT + PAD_TENSOR_RIGHT;
+    const int z_max     = get_global_size(2) / BATCH_SIZE;
+
+    const int x = get_global_id(0);
+    const int y = get_global_id(1) * STRIDE_X;
+    const int z = (get_global_id(2) % z_max) * STRIDE_Y;
+    const int w = get_global_id(2) / z_max;
+
+    const unsigned int padded_offset = input->offset_first_element_in_bytes
+                                       + x * 8 * input->stride_x
+                                       + y * input->stride_y
+                                       + z * input->stride_z;
+
+    const unsigned int offset_base = padded_offset
+                                     - (z + 1) * PAD_TENSOR_TOP * input->stride_y    /* Top padding for each z plane */
+                                     - y * pad_horiz * sizeof(DATA_TYPE)             /* Horizontal padding for each row */
+                                     - z * MAX_WIDTH * pad_horiz * sizeof(DATA_TYPE) /* Horizontal padding for each z plane */
+                                     - PAD_TENSOR_LEFT * sizeof(DATA_TYPE);
+
+    *offset_x0 = (uint)offset_base / sizeof(DATA_TYPE);
+    *offset_x1 = *offset_x0 + input->stride_y / sizeof(DATA_TYPE) - pad_horiz;
+    *offset_x2 = *offset_x0 + input->stride_z / sizeof(DATA_TYPE) - pad_horiz * MAX_WIDTH - PAD_TENSOR_TOP * input->stride_y / sizeof(DATA_TYPE);
+    *offset_x3 = *offset_x2 + input->stride_y / sizeof(DATA_TYPE) - pad_horiz;
+
+    return;
+}
+#endif //defined(DST_DEPTH)
+
+#endif //defined(PAD_TENSOR_LEFT) && defined(PAD_TENSOR_RIGHT) && defined(PAD_TENSOR_TOP) && defined(PAD_TENSOR_BOTTOM)
+
+/** Performs a MAX pooling of pool size equal to 2, and record max value indices for NCHW.
+ *
+ * @note Datatype must be passed using -DDATA_TYPE e.g. -DDATA_TYPE=half. Supported data types are F32
+ * @note Pool sizes must be passed using -DPOOL_SIZE_X and -DPOOL_SIZE_Y e.g. -DPOOL_SIZE_X=13;
+ * @note Tensors width and height must be passed at compile time using -DMAX_WIDTH and -DMAX_HEIGHT
+ * @note Pool strides must be passed at compile time using -DSTRIDE_X and -DSTRIDE_Y which are the steps of the window along the x and y directions
+ * @note Tensor padding values must be passed at compile time using PAD_TENSOR_LEFT, PAD_TENSOR_RIGHT, PAD_TENSOR_TOP and PAD_TENSOR_BOTTOM
+ *
+ * @param[in]  input_ptr                             Pointer to the source tensor. Supported data types: F32
+ * @param[in]  input_stride_x                        Stride of the source tensor in X dimension (in bytes)
+ * @param[in]  input_step_x                          input_stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in]  input_stride_y                        Stride of the source tensor in Y dimension (in bytes)
+ * @param[in]  input_step_y                          input_stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in]  input_stride_z                        Stride of the source tensor in Z dimension (in bytes)
+ * @param[in]  input_step_z                          input_stride_z * number of elements along Z processed per workitem(in bytes)
+ * @param[in]  input_offset_first_element_in_bytes   The offset of the first element in the source tensor
+ * @param[out] output_ptr                            Pointer to the destination tensor. Supported data types: same as @p input_ptr
+ * @param[in]  output_stride_x                       Stride of the destination tensor in X dimension (in bytes)
+ * @param[in]  output_step_x                         output_stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in]  output_stride_y                       Stride of the destination tensor in Y dimension (in bytes)
+ * @param[in]  output_step_y                         output_stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in]  output_stride_z                       Stride of the source tensor in Z dimension (in bytes)
+ * @param[in]  output_step_z                         output_stride_z * number of elements along Z processed per workitem(in bytes)
+ * @param[in]  output_offset_first_element_in_bytes  The offset of the first element in the destination tensor
+ * @param[in]  indices_ptr                           Pointer to the indices tensor. Supported data types: U32
+ * @param[in]  indices_stride_x                      Stride of the indices tensor in X dimension (in bytes)
+ * @param[in]  indices_step_x                        indices_stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in]  indices_stride_y                      Stride of the indices tensor in Y dimension (in bytes)
+ * @param[in]  indices_step_y                        indices_stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in]  indices_stride_z                      Stride of the indices tensor in Z dimension (in bytes)
+ * @param[in]  indices_step_z                        indices_stride_z * number of elements along Z processed per workitem(in bytes)
+ * @param[in]  indices_offset_first_element_in_bytes The offset of the first element in the indices tensor
+ */
+__kernel void pooling_layer_2_nchw_indices_fp32(
+    TENSOR3D_DECLARATION(input),
+    TENSOR3D_DECLARATION(output),
+    TENSOR3D_DECLARATION(indices))
+{
+    // Get pixels pointer
+    Tensor3D input   = CONVERT_TO_TENSOR3D_STRUCT(input);
+    Tensor3D output  = CONVERT_TO_TENSOR3D_STRUCT(output);
+    Tensor3D indices = CONVERT_TO_TENSOR3D_STRUCT(indices);
+
+    // Load data
+    float2 data0 = VLOAD(2)(0, (__global float *)tensor3D_offset(&input, 0, 0, 0));
+    float2 data1 = VLOAD(2)(0, (__global float *)tensor3D_offset(&input, 0, 1, 0));
+
+    // Perform calculations
+    float data0_max = POOL_OP(data0.s0, data0.s1);
+    float data1_max = POOL_OP(data1.s0, data1.s1);
+    float res       = POOL_OP(data0_max, data1_max);
+    // Store result
+    *(__global float *)output.ptr = res;
+
+#if defined(PAD_TENSOR_LEFT) && defined(PAD_TENSOR_RIGHT) && defined(PAD_TENSOR_TOP) && defined(PAD_TENSOR_BOTTOM)
+
+    uint offset_top    = 0;
+    uint offset_bottom = 0;
+
+    offset_no_padding_nchw(&input, &offset_top, &offset_bottom);
+
+    uint index0 = select(offset_top + 1, offset_top, isgreaterequal(data0.s0, data0.s1));
+    uint index1 = select(offset_bottom + 1, offset_bottom, isgreaterequal(data1.s0, data1.s1));
+    uint index  = select(index1, index0, isgreaterequal(data0_max, data1_max));
+
+    *(__global uint *)indices.ptr = index;
+
+#endif //defined(PAD_TENSOR_LEFT) && defined(PAD_TENSOR_RIGHT) && defined(PAD_TENSOR_TOP) && defined(PAD_TENSOR_BOTTOM)
+}
+
+/** Performs a MAX pooling of pool size equal to 2, and record max value indices for NCHW.
+ *
+ * @note Datatype must be passed using -DDATA_TYPE e.g. -DDATA_TYPE=half. Supported data types are F16
+ * @note Pool sizes must be passed using -DPOOL_SIZE_X and -DPOOL_SIZE_Y e.g. -DPOOL_SIZE_X=13;
+ * @note Tensors width and height must be passed at compile time using -DMAX_WIDTH and -DMAX_HEIGHT
+ * @note Pool strides must be passed at compile time using -DSTRIDE_X and -DSTRIDE_Y which are the steps of the window along the x and y directions
+ * @note Tensor padding values must be passed at compile time using PAD_TENSOR_LEFT, PAD_TENSOR_RIGHT, PAD_TENSOR_TOP and PAD_TENSOR_BOTTOM
+ *
+ * @param[in]  input_ptr                             Pointer to the source tensor. Supported data types: F16
+ * @param[in]  input_stride_x                        Stride of the source tensor in X dimension (in bytes)
+ * @param[in]  input_step_x                          input_stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in]  input_stride_y                        Stride of the source tensor in Y dimension (in bytes)
+ * @param[in]  input_step_y                          input_stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in]  input_stride_z                        Stride of the source tensor in Z dimension (in bytes)
+ * @param[in]  input_step_z                          input_stride_z * number of elements along Z processed per workitem(in bytes)
+ * @param[in]  input_offset_first_element_in_bytes   The offset of the first element in the source tensor
+ * @param[out] output_ptr                            Pointer to the destination tensor. Supported data types: same as @p input_ptr
+ * @param[in]  output_stride_x                       Stride of the destination tensor in X dimension (in bytes)
+ * @param[in]  output_step_x                         output_stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in]  output_stride_y                       Stride of the destination tensor in Y dimension (in bytes)
+ * @param[in]  output_step_y                         output_stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in]  output_stride_z                       Stride of the source tensor in Z dimension (in bytes)
+ * @param[in]  output_step_z                         output_stride_z * number of elements along Z processed per workitem(in bytes)
+ * @param[in]  output_offset_first_element_in_bytes  The offset of the first element in the destination tensor
+ * @param[in]  indices_ptr                           Pointer to the indices tensor. Supported data types: U32
+ * @param[in]  indices_stride_x                      Stride of the indices tensor in X dimension (in bytes)
+ * @param[in]  indices_step_x                        indices_stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in]  indices_stride_y                      Stride of the indices tensor in Y dimension (in bytes)
+ * @param[in]  indices_step_y                        indices_stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in]  indices_stride_z                      Stride of the indices tensor in Z dimension (in bytes)
+ * @param[in]  indices_step_z                        indices_stride_z * number of elements along Z processed per workitem(in bytes)
+ * @param[in]  indices_offset_first_element_in_bytes The offset of the first element in the indices tensor
+ */
+__kernel void pooling_layer_2_nchw_indices_fp16(
+    TENSOR3D_DECLARATION(input),
+    TENSOR3D_DECLARATION(output),
+    TENSOR3D_DECLARATION(indices))
+{
+    // Get pixels pointer
+    Tensor3D input   = CONVERT_TO_TENSOR3D_STRUCT(input);
+    Tensor3D output  = CONVERT_TO_TENSOR3D_STRUCT(output);
+    Tensor3D indices = CONVERT_TO_TENSOR3D_STRUCT(indices);
+
+    // Load data
+    half2 data0 = VLOAD(2)(0, (__global half *)tensor3D_offset(&input, 0, 0, 0));
+    half2 data1 = VLOAD(2)(0, (__global half *)tensor3D_offset(&input, 0, 1, 0));
+
+    // Perform calculations
+    half data0_max = POOL_OP(data0.s0, data0.s1);
+    half data1_max = POOL_OP(data1.s0, data1.s1);
+    half res       = POOL_OP(data0_max, data1_max);
+    // Store result
+    *(__global half *)output.ptr = res;
+
+#if defined(PAD_TENSOR_LEFT) && defined(PAD_TENSOR_RIGHT) && defined(PAD_TENSOR_TOP) && defined(PAD_TENSOR_BOTTOM)
+
+    uint offset_top    = 0;
+    uint offset_bottom = 0;
+
+    offset_no_padding_nchw(&input, &offset_top, &offset_bottom);
+
+    uint index0 = select(offset_top + 1, offset_top, isgreaterequal(data0.s0, data0.s1));
+    uint index1 = select(offset_bottom + 1, offset_bottom, isgreaterequal(data1.s0, data1.s1));
+    uint index  = select(index1, index0, isgreaterequal(data0_max, data1_max));
+
+    *(__global uint *)indices.ptr = index;
+
+#endif //defined(PAD_TENSOR_LEFT) && defined(PAD_TENSOR_RIGHT) && defined(PAD_TENSOR_TOP) && defined(PAD_TENSOR_BOTTOM)
+}
+
+/** Performs a MAX pooling of pool size equal to 2, and record max value indices for NHWC.
+ *
+ * @note Datatype must be passed using -DDATA_TYPE e.g. -DDATA_TYPE=half. Supported data types are F32
+ * @note Pool sizes must be passed using -DPOOL_SIZE_X and -DPOOL_SIZE_Y e.g. -DPOOL_SIZE_X=13;
+ * @note Tensors width and height must be passed at compile time using -DMAX_WIDTH and -DMAX_HEIGHT
+ * @note Pool strides must be passed at compile time using -DSTRIDE_X and -DSTRIDE_Y which are the steps of the window along the x and y directions
+ * @note Tensor padding values must be passed at compile time using PAD_TENSOR_LEFT, PAD_TENSOR_RIGHT, PAD_TENSOR_TOP and PAD_TENSOR_BOTTOM
+ *
+ * @param[in]  input_ptr                             Pointer to the source tensor. Supported data types: F32
+ * @param[in]  input_stride_x                        Stride of the source tensor in X dimension (in bytes)
+ * @param[in]  input_step_x                          input_stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in]  input_stride_y                        Stride of the source tensor in Y dimension (in bytes)
+ * @param[in]  input_step_y                          input_stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in]  input_stride_z                        Stride of the source tensor in Z dimension (in bytes)
+ * @param[in]  input_step_z                          input_stride_z * number of elements along Z processed per workitem(in bytes)
+ * @param[in]  input_stride_w                        Stride of the source tensor in W dimension (in bytes)
+ * @param[in]  input_step_w                          input_stride_w * number of elements along W processed per workitem(in bytes)
+ * @param[in]  input_offset_first_element_in_bytes   The offset of the first element in the source tensor
+ * @param[out] output_ptr                            Pointer to the destination tensor. Supported data types: same as @p input_ptr
+ * @param[in]  output_stride_x                       Stride of the destination tensor in X dimension (in bytes)
+ * @param[in]  output_step_x                         output_stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in]  output_stride_y                       Stride of the destination tensor in Y dimension (in bytes)
+ * @param[in]  output_step_y                         output_stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in]  output_stride_z                       Stride of the destination tensor in Z dimension (in bytes)
+ * @param[in]  output_step_z                         output_stride_z * number of elements along Z processed per workitem(in bytes)
+ * @param[in]  output_stride_w                       Stride of the destination tensor in W dimension (in bytes)
+ * @param[in]  output_step_w                         output_stride_w * number of elements along W processed per workitem(in bytes)
+ * @param[in]  output_offset_first_element_in_bytes  The offset of the first element in the destination tensor
+ * @param[in]  indices_ptr                           Pointer to the indices tensor. Supported data types: U32
+ * @param[in]  indices_stride_x                      Stride of the indices tensor in X dimension (in bytes)
+ * @param[in]  indices_step_x                        indices_stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in]  indices_stride_y                      Stride of the indices tensor in Y dimension (in bytes)
+ * @param[in]  indices_step_y                        indices_stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in]  indices_stride_z                      Stride of the indices tensor in Z dimension (in bytes)
+ * @param[in]  indices_step_z                        indices_stride_z * number of elements along Z processed per workitem(in bytes)
+ * @param[in]  indices_stride_w                      Stride of the indices tensor in W dimension (in bytes)
+ * @param[in]  indices_step_w                        indices_stride_w * number of elements along W processed per workitem(in bytes)
+ * @param[in]  indices_offset_first_element_in_bytes The offset of the first element in the indices tensor
+ */
+__kernel void pooling_layer_2_nhwc_indices_fp32(
+    TENSOR4D_DECLARATION(input),
+    TENSOR4D_DECLARATION(output),
+    TENSOR4D_DECLARATION(indices))
+{
+    // Get pixels pointer
+#if defined(DST_DEPTH)
+    Tensor4D input   = CONVERT_TO_TENSOR4D_STRUCT(input, DST_DEPTH);
+    Tensor4D output  = CONVERT_TO_TENSOR4D_STRUCT(output, DST_DEPTH);
+    Tensor4D indices = CONVERT_TO_TENSOR4D_STRUCT(indices, DST_DEPTH);
+#else  /* defined(DST_DEPTH) */
+    Tensor3D input   = CONVERT_TO_TENSOR3D_STRUCT(input);
+    Tensor3D output  = CONVERT_TO_TENSOR3D_STRUCT(output);
+    Tensor3D indices = CONVERT_TO_TENSOR3D_STRUCT(indices);
+#endif /* defined(DST_DEPTH) */
+
+#if defined(DST_DEPTH)
+    // Load data
+    float8 data_top0    = VLOAD(8)(0, (__global float *)tensor4D_offset(&input, 0, 0, 0, 0));
+    float8 data_top1    = VLOAD(8)(0, (__global float *)tensor4D_offset(&input, 0, 1, 0, 0));
+    float8 data_bottom0 = VLOAD(8)(0, (__global float *)tensor4D_offset(&input, 0, 0, 1, 0));
+    float8 data_bottom1 = VLOAD(8)(0, (__global float *)tensor4D_offset(&input, 0, 1, 1, 0));
+#else  /* defined(DST_DEPTH) */
+    // Load data
+    float8   data_top0    = VLOAD(8)(0, (__global float *)tensor3D_offset(&input, 0, 0, 0));
+    float8   data_top1    = VLOAD(8)(0, (__global float *)tensor3D_offset(&input, 0, 1, 0));
+    float8   data_bottom0 = VLOAD(8)(0, (__global float *)tensor3D_offset(&input, 0, 0, 1));
+    float8   data_bottom1 = VLOAD(8)(0, (__global float *)tensor3D_offset(&input, 0, 1, 1));
+#endif /* defined(DST_DEPTH) */
+
+    float8 data_top_max    = POOL_OP(data_top0, data_top1);
+    float8 data_bottom_max = POOL_OP(data_bottom0, data_bottom1);
+    float8 data_max        = POOL_OP(data_top_max, data_bottom_max);
+    vstore8(data_max, 0, (__global float *)output.ptr);
+
+#if defined(PAD_TENSOR_LEFT) && defined(PAD_TENSOR_RIGHT) && defined(PAD_TENSOR_TOP) && defined(PAD_TENSOR_BOTTOM)
+
+    uint offset_x0 = 0;
+    uint offset_x1 = 0;
+    uint offset_x2 = 0;
+    uint offset_x3 = 0;
+
+#if defined(DST_DEPTH)
+    offset_no_padding_nhwc_4D(&input, &offset_x0, &offset_x1, &offset_x2, &offset_x3);
+#else  /* defined(DST_DEPTH) */
+    offset_no_padding_nhwc_3D(&input, &offset_x0, &offset_x1, &offset_x2, &offset_x3);
+#endif /* defined(DST_DEPTH) */
+
+    uint8 voffset_x0 = { offset_x0, offset_x0 + 1, offset_x0 + 2, offset_x0 + 3, offset_x0 + 4, offset_x0 + 5, offset_x0 + 6, offset_x0 + 7 };
+    uint8 voffset_x1 = { offset_x1, offset_x1 + 1, offset_x1 + 2, offset_x1 + 3, offset_x1 + 4, offset_x1 + 5, offset_x1 + 6, offset_x1 + 7 };
+    uint8 voffset_x2 = { offset_x2, offset_x2 + 1, offset_x2 + 2, offset_x2 + 3, offset_x2 + 4, offset_x2 + 5, offset_x2 + 6, offset_x2 + 7 };
+    uint8 voffset_x3 = { offset_x3, offset_x3 + 1, offset_x3 + 2, offset_x3 + 3, offset_x3 + 4, offset_x3 + 5, offset_x3 + 6, offset_x3 + 7 };
+
+    uint8 index0 = select(voffset_x1, voffset_x0, isgreaterequal(data_top0, data_top1));
+    uint8 index1 = select(voffset_x3, voffset_x2, isgreaterequal(data_bottom0, data_bottom1));
+    uint8 index  = select(index1, index0, isgreaterequal(data_top_max, data_bottom_max));
+    vstore8(index, 0, (__global uint *)indices.ptr);
+
+#endif /* defined(PAD_TENSOR_LEFT) && defined(PAD_TENSOR_RIGHT) && defined(PAD_TENSOR_TOP) && defined(PAD_TENSOR_BOTTOM */
+}
+
+/** Performs a MAX pooling of pool size equal to 2, and record max value indices for NHWC.
+ *
+ * @note Datatype must be passed using -DDATA_TYPE e.g. -DDATA_TYPE=half. Supported data types are F16
+ * @note Pool sizes must be passed using -DPOOL_SIZE_X and -DPOOL_SIZE_Y e.g. -DPOOL_SIZE_X=13;
+ * @note Tensors width and height must be passed at compile time using -DMAX_WIDTH and -DMAX_HEIGHT
+ * @note Pool strides must be passed at compile time using -DSTRIDE_X and -DSTRIDE_Y which are the steps of the window along the x and y directions
+ * @note Tensor padding values must be passed at compile time using PAD_TENSOR_LEFT, PAD_TENSOR_RIGHT, PAD_TENSOR_TOP and PAD_TENSOR_BOTTOM
+ *
+ * @param[in]  input_ptr                             Pointer to the source tensor. Supported data types: F16
+ * @param[in]  input_stride_x                        Stride of the source tensor in X dimension (in bytes)
+ * @param[in]  input_step_x                          input_stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in]  input_stride_y                        Stride of the source tensor in Y dimension (in bytes)
+ * @param[in]  input_step_y                          input_stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in]  input_stride_z                        Stride of the source tensor in Z dimension (in bytes)
+ * @param[in]  input_step_z                          input_stride_z * number of elements along Z processed per workitem(in bytes)
+ * @param[in]  input_stride_w                        Stride of the source tensor in W dimension (in bytes)
+ * @param[in]  input_step_w                          input_stride_w * number of elements along W processed per workitem(in bytes)
+ * @param[in]  input_offset_first_element_in_bytes   The offset of the first element in the source tensor
+ * @param[out] output_ptr                            Pointer to the destination tensor. Supported data types: same as @p input_ptr
+ * @param[in]  output_stride_x                       Stride of the destination tensor in X dimension (in bytes)
+ * @param[in]  output_step_x                         output_stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in]  output_stride_y                       Stride of the destination tensor in Y dimension (in bytes)
+ * @param[in]  output_step_y                         output_stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in]  output_stride_z                       Stride of the destination tensor in Z dimension (in bytes)
+ * @param[in]  output_step_z                         output_stride_z * number of elements along Z processed per workitem(in bytes)
+ * @param[in]  output_stride_w                       Stride of the destination tensor in W dimension (in bytes)
+ * @param[in]  output_step_w                         output_stride_w * number of elements along W processed per workitem(in bytes)
+ * @param[in]  output_offset_first_element_in_bytes  The offset of the first element in the destination tensor
+ * @param[in]  indices_ptr                           Pointer to the indices tensor. Supported data types: U32
+ * @param[in]  indices_stride_x                      Stride of the indices tensor in X dimension (in bytes)
+ * @param[in]  indices_step_x                        indices_stride_x * number of elements along X processed per workitem(in bytes)
+ * @param[in]  indices_stride_y                      Stride of the indices tensor in Y dimension (in bytes)
+ * @param[in]  indices_step_y                        indices_stride_y * number of elements along Y processed per workitem(in bytes)
+ * @param[in]  indices_stride_z                      Stride of the indices tensor in Z dimension (in bytes)
+ * @param[in]  indices_step_z                        indices_stride_z * number of elements along Z processed per workitem(in bytes)
+ * @param[in]  indices_stride_w                      Stride of the indices tensor in W dimension (in bytes)
+ * @param[in]  indices_step_w                        indices_stride_w * number of elements along W processed per workitem(in bytes)
+ * @param[in]  indices_offset_first_element_in_bytes The offset of the first element in the indices tensor
+ */
+__kernel void pooling_layer_2_nhwc_indices_fp16(
+    TENSOR4D_DECLARATION(input),
+    TENSOR4D_DECLARATION(output),
+    TENSOR4D_DECLARATION(indices))
+{
+    // Get pixels pointer
+#if defined(DST_DEPTH)
+    Tensor4D input   = CONVERT_TO_TENSOR4D_STRUCT(input, DST_DEPTH);
+    Tensor4D output  = CONVERT_TO_TENSOR4D_STRUCT(output, DST_DEPTH);
+    Tensor4D indices = CONVERT_TO_TENSOR4D_STRUCT(indices, DST_DEPTH);
+#else  /* defined(DST_DEPTH) */
+    Tensor3D input        = CONVERT_TO_TENSOR3D_STRUCT(input);
+    Tensor3D output       = CONVERT_TO_TENSOR3D_STRUCT(output);
+    Tensor3D indices      = CONVERT_TO_TENSOR3D_STRUCT(indices);
+#endif /* defined(DST_DEPTH) */
+
+#if defined(DST_DEPTH)
+    // Load data
+    half8 data_top0    = VLOAD(8)(0, (__global half *)tensor4D_offset(&input, 0, 0, 0, 0));
+    half8 data_top1    = VLOAD(8)(0, (__global half *)tensor4D_offset(&input, 0, 1, 0, 0));
+    half8 data_bottom0 = VLOAD(8)(0, (__global half *)tensor4D_offset(&input, 0, 0, 1, 0));
+    half8 data_bottom1 = VLOAD(8)(0, (__global half *)tensor4D_offset(&input, 0, 1, 1, 0));
+#else  /* defined(DST_DEPTH) */
+    // Load data
+    half8 data_top0    = VLOAD(8)(0, (__global half *)tensor3D_offset(&input, 0, 0, 0));
+    half8 data_top1    = VLOAD(8)(0, (__global half *)tensor3D_offset(&input, 0, 1, 0));
+    half8 data_bottom0 = VLOAD(8)(0, (__global half *)tensor3D_offset(&input, 0, 0, 1));
+    half8 data_bottom1 = VLOAD(8)(0, (__global half *)tensor3D_offset(&input, 0, 1, 1));
+#endif /* defined(DST_DEPTH) */
+
+    half8 data_top_max    = POOL_OP(data_top0, data_top1);
+    half8 data_bottom_max = POOL_OP(data_bottom0, data_bottom1);
+    half8 data_max        = POOL_OP(data_top_max, data_bottom_max);
+    vstore8(data_max, 0, (__global half *)output.ptr);
+
+#if defined(PAD_TENSOR_LEFT) && defined(PAD_TENSOR_RIGHT) && defined(PAD_TENSOR_TOP) && defined(PAD_TENSOR_BOTTOM)
+
+    uint offset_x0_int = 0;
+    uint offset_x1_int = 0;
+    uint offset_x2_int = 0;
+    uint offset_x3_int = 0;
+
+#if defined(DST_DEPTH)
+    offset_no_padding_nhwc_4D(&input, &offset_x0_int, &offset_x1_int, &offset_x2_int, &offset_x3_int);
+#else  /* defined(DST_DEPTH) */
+    offset_no_padding_nhwc_3D(&input, &offset_x0_int, &offset_x1_int, &offset_x2_int, &offset_x3_int);
+#endif /* defined(DST_DEPTH) */
+
+    ushort offset_x0 = (ushort)offset_x0_int;
+    ushort offset_x1 = (ushort)offset_x1_int;
+    ushort offset_x2 = (ushort)offset_x2_int;
+    ushort offset_x3 = (ushort)offset_x3_int;
+
+    ushort8 voffset_x0 = { offset_x0, offset_x0 + 1, offset_x0 + 2, offset_x0 + 3, offset_x0 + 4, offset_x0 + 5, offset_x0 + 6, offset_x0 + 7 };
+    ushort8 voffset_x1 = { offset_x1, offset_x1 + 1, offset_x1 + 2, offset_x1 + 3, offset_x1 + 4, offset_x1 + 5, offset_x1 + 6, offset_x1 + 7 };
+    ushort8 voffset_x2 = { offset_x2, offset_x2 + 1, offset_x2 + 2, offset_x2 + 3, offset_x2 + 4, offset_x2 + 5, offset_x2 + 6, offset_x2 + 7 };
+    ushort8 voffset_x3 = { offset_x3, offset_x3 + 1, offset_x3 + 2, offset_x3 + 3, offset_x3 + 4, offset_x3 + 5, offset_x3 + 6, offset_x3 + 7 };
+
+    ushort8 index0 = select(voffset_x1, voffset_x0, isgreaterequal(data_top0, data_top1));
+    ushort8 index1 = select(voffset_x3, voffset_x2, isgreaterequal(data_bottom0, data_bottom1));
+    ushort8 index  = select(index1, index0, isgreaterequal(data_top_max, data_bottom_max));
+    vstore8(CONVERT(index, uint8), 0, (__global uint *)indices.ptr);
+
+#endif /* defined(PAD_TENSOR_LEFT) && defined(PAD_TENSOR_RIGHT) && defined(PAD_TENSOR_TOP) && defined(PAD_TENSOR_BOTTOM */
 }
 
 )"
