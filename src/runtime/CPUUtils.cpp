@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -25,8 +25,9 @@
 
 #include "arm_compute/core/CPP/CPPTypes.h"
 #include "arm_compute/core/Error.h"
-#include "support/ToolchainSupport.h"
+#include "support/StringSupport.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <cstring>
@@ -72,6 +73,7 @@ bool model_supports_dot(CPUModel model)
     {
         case CPUModel::GENERIC_FP16_DOT:
         case CPUModel::A55r1:
+        case CPUModel::X1:
             return true;
         default:
             return false;
@@ -85,6 +87,7 @@ bool model_supports_fp16(CPUModel model)
         case CPUModel::GENERIC_FP16:
         case CPUModel::GENERIC_FP16_DOT:
         case CPUModel::A55r1:
+        case CPUModel::X1:
             return true;
         default:
             return false;
@@ -119,6 +122,12 @@ CPUModel midr_to_model(const unsigned int midr)
                 {
                     model = CPUModel::A55r0;
                 }
+                break;
+            case 0xd44: // X1
+                model = CPUModel::X1;
+                break;
+            case 0xd09: // A73
+                model = CPUModel::A73;
                 break;
             case 0xd0a: // A75
                 if(variant != 0)
@@ -402,7 +411,7 @@ unsigned int get_threads_hint()
 {
     unsigned int num_threads_hint = 1;
 
-#ifndef BARE_METAL
+#if !defined(BARE_METAL)
     std::map<std::string, unsigned int> cpu_part_occurrence_map;
 
     // CPU part regex
@@ -447,7 +456,7 @@ unsigned int get_threads_hint()
 
     // Set thread hint
     num_threads_hint = cpu_part_occurrence_map.empty() ? std::thread::hardware_concurrency() : min_common_cores->second;
-#endif /* BARE_METAL */
+#endif /* !defined(BARE_METAL) */
 
     return num_threads_hint;
 }

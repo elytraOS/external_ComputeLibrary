@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -51,19 +51,21 @@ public:
      * @param[in, out] input     Source tensor. (Written to only when padding != 0) Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32.
      * @param[out]     output    Destination tensor. Data types supported: Same as @p input.
      * @param[in]      pool_info Contains pooling operation information described in @ref PoolingLayerInfo.
+     * @param[out]     indices   (optional) The indices of the maximal values. Data type supported: U32.
      */
-    void configure(ITensor *input, ITensor *output, const PoolingLayerInfo &pool_info);
+    void configure(ITensor *input, ITensor *output, const PoolingLayerInfo &pool_info, ITensor *indices = nullptr);
     /** Static function to check if given info will lead to a valid configuration of @ref NEPoolingLayer
      *
      * @note F16 is supported for pool sizes 2 and 3 only
      *
-     * @param[in] input     Source tensor. (Written to only when padding != 0) Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32.
-     * @param[in] output    Destination tensor. Data types supported: Same as @p input.
+     * @param[in] input     Source tensor info. (Written to only when padding != 0) Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32.
+     * @param[in] output    Destination tensor info. Data types supported: Same as @p input.
      * @param[in] pool_info Contains pooling operation information described in @ref PoolingLayerInfo.
+     * @param[in] indices   (optional) Tensor info of the indices of the maximal values. Data type supported: U32.
      *
      * @return a status
      */
-    static Status validate(const ITensorInfo *input, const ITensorInfo *output, const PoolingLayerInfo &pool_info);
+    static Status validate(const ITensorInfo *input, const ITensorInfo *output, const PoolingLayerInfo &pool_info, const ITensorInfo *indices = nullptr);
 
     // Inherited methods overridden:
     void run() override;

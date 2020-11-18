@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -62,13 +62,16 @@ struct BroadcastUnroll
         id_src1.set(dim - 1, 0);
         id_src2.set(dim - 1, 0);
         id_dst.set(dim - 1, 0);
-
-        for(size_t i = 0; i < dst.shape()[dim - 1]; ++i, ++id_dst[dim - 1])
+#if defined(_OPENMP)
+        #pragma omp parallel for
+#endif /* _OPENMP */
+        for(size_t i = 0; i < dst.shape()[dim - 1]; ++i)
         {
             BroadcastUnroll < dim - 1 >::unroll(op, src1, src2, dst, convert_policy, id_src1, id_src2, id_dst);
 
             id_src1[dim - 1] += !src1_is_broadcast;
             id_src2[dim - 1] += !src2_is_broadcast;
+            ++id_dst[dim - 1];
         }
     }
 };
@@ -177,6 +180,7 @@ SimpleTensor<int16_t> arithmetic_operation(ArithmeticOperation op, const SimpleT
     }
 }
 
+template SimpleTensor<int32_t> arithmetic_operation(ArithmeticOperation op, const SimpleTensor<int32_t> &src1, const SimpleTensor<int32_t> &src2, SimpleTensor<int32_t> &dst, ConvertPolicy convert_policy);
 template SimpleTensor<half> arithmetic_operation(ArithmeticOperation op, const SimpleTensor<half> &src1, const SimpleTensor<half> &src2, SimpleTensor<half> &dst, ConvertPolicy convert_policy);
 template SimpleTensor<float> arithmetic_operation(ArithmeticOperation op, const SimpleTensor<float> &src1, const SimpleTensor<float> &src2, SimpleTensor<float> &dst, ConvertPolicy convert_policy);
 
@@ -190,6 +194,7 @@ SimpleTensor<T> arithmetic_operation(ArithmeticOperation op, const SimpleTensor<
     return dst;
 }
 
+template SimpleTensor<int32_t> arithmetic_operation(ArithmeticOperation op, const SimpleTensor<int32_t> &src1, const SimpleTensor<int32_t> &src2, DataType dst_data_type, ConvertPolicy convert_policy);
 template SimpleTensor<int16_t> arithmetic_operation(ArithmeticOperation op, const SimpleTensor<int16_t> &src1, const SimpleTensor<int16_t> &src2, DataType dst_data_type, ConvertPolicy convert_policy);
 template SimpleTensor<int8_t> arithmetic_operation(ArithmeticOperation op, const SimpleTensor<int8_t> &src1, const SimpleTensor<int8_t> &src2, DataType dst_data_type, ConvertPolicy convert_policy);
 template SimpleTensor<half> arithmetic_operation(ArithmeticOperation op, const SimpleTensor<half> &src1, const SimpleTensor<half> &src2, DataType dst_data_type, ConvertPolicy convert_policy);

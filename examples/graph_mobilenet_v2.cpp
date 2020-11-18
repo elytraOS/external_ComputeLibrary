@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -42,9 +42,7 @@ public:
     }
     GraphMobilenetV2Example(const GraphMobilenetV2Example &) = delete;
     GraphMobilenetV2Example &operator=(const GraphMobilenetV2Example &) = delete;
-    GraphMobilenetV2Example(GraphMobilenetV2Example &&)                 = default; // NOLINT
-    GraphMobilenetV2Example &operator=(GraphMobilenetV2Example &&) = default;      // NOLINT
-    ~GraphMobilenetV2Example() override                            = default;
+    ~GraphMobilenetV2Example() override                                 = default;
 
     bool do_setup(int argc, char **argv) override
     {

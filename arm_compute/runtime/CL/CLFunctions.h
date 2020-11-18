@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -100,6 +100,7 @@
 #include "arm_compute/runtime/CL/functions/CLLaplacianReconstruct.h"
 #include "arm_compute/runtime/CL/functions/CLLocallyConnectedLayer.h"
 #include "arm_compute/runtime/CL/functions/CLMagnitude.h"
+#include "arm_compute/runtime/CL/functions/CLMaxUnpoolingLayer.h"
 #include "arm_compute/runtime/CL/functions/CLMeanStdDev.h"
 #include "arm_compute/runtime/CL/functions/CLMeanStdDevNormalizationLayer.h"
 #include "arm_compute/runtime/CL/functions/CLMedian3x3.h"
@@ -116,6 +117,7 @@
 #include "arm_compute/runtime/CL/functions/CLPixelWiseMultiplication.h"
 #include "arm_compute/runtime/CL/functions/CLPoolingLayer.h"
 #include "arm_compute/runtime/CL/functions/CLPriorBoxLayer.h"
+#include "arm_compute/runtime/CL/functions/CLQLSTMLayer.h"
 #include "arm_compute/runtime/CL/functions/CLQuantizationLayer.h"
 #include "arm_compute/runtime/CL/functions/CLRNNLayer.h"
 #include "arm_compute/runtime/CL/functions/CLROIAlignLayer.h"

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -71,6 +71,61 @@ private:
     const unsigned int _end;
 };
 
+/** Given two dimensions and a maxium number of threads to utilise, calcualte the best
+ * combination of threads that fit in (mutliplied together) max_threads.
+ *
+ * This algorithm assumes that work in either of the dimensions is equally difficult
+ * to compute
+ *
+ * @returns [m_nthreads, n_nthreads] A pair of the threads that should be used in each dimension
+ */
+std::pair<unsigned, unsigned> split_2d(unsigned max_threads, std::size_t m, std::size_t n)
+{
+    /*
+     * We want the same ratio of threads in M & N to the ratio of m and n problem size
+     *
+     * Therefore:    mt/nt == m/n    where mt*nt == max_threads
+     *
+     *             max_threads/nt = mt    &    (max_threads/nt) * (m/n) = nt
+     *          nt^2 = max_threads * (m/n)
+     *          nt = sqrt( max_threads * (m/n) )
+     */
+    //ratio of m to n in problem dimensions
+    double ratio = m / static_cast<double>(n);
+
+    // nt = sqrt(max_threads * (m / n) )
+    const unsigned adjusted = std::round(
+                                  std::sqrt(max_threads * ratio));
+
+    //find the nearest factor of max_threads
+    for(unsigned i = 0; i != adjusted; ++i)
+    {
+        //try down
+        const unsigned adj_down = adjusted - i;
+        if(max_threads % adj_down == 0)
+        {
+            return { adj_down, max_threads / adj_down };
+        }
+
+        //try up
+        const unsigned adj_up = adjusted + i;
+        if(max_threads % adj_up == 0)
+        {
+            return { adj_up, max_threads / adj_up };
+        }
+    }
+
+    //we didn't find anything so lets bail out with maxes biased to the largest dimension
+    if(m > n)
+    {
+        return { std::min<unsigned>(m, max_threads), 1 };
+    }
+    else
+    {
+        return { 1, std::min<unsigned>(n, max_threads) };
+    }
+}
+
 /** Execute workloads[info.thread_id] first, then call the feeder to get the index of the next workload to run.
  *
  * Will run workloads until the feeder reaches the end of its range.
@@ -90,38 +145,30 @@ void process_workloads(std::vector<IScheduler::Workload> &workloads, ThreadFeede
     while(feeder.get_next(workload_index));
 }
 
-} //namespace
-
-struct CPPScheduler::Impl final
+void set_thread_affinity(int core_id)
 {
-    explicit Impl(unsigned int thread_hint)
-        : _num_threads(thread_hint), _threads(_num_threads - 1)
+    if(core_id < 0)
     {
-    }
-    void set_num_threads(unsigned int num_threads, unsigned int thead_hint)
-    {
-        _num_threads = num_threads == 0 ? thead_hint : num_threads;
-        _threads.resize(_num_threads - 1);
-    }
-    unsigned int num_threads() const
-    {
-        return _num_threads;
+        return;
     }
 
-    void run_workloads(std::vector<IScheduler::Workload> &workloads);
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(core_id, &set);
+    ARM_COMPUTE_EXIT_ON_MSG(sched_setaffinity(0, sizeof(set), &set),
+                            "Error setting thread affinity");
+}
 
-    class Thread;
-
-    unsigned int       _num_threads;
-    std::list<Thread>  _threads;
-    arm_compute::Mutex _run_workloads_mutex{};
-};
-
-class CPPScheduler::Impl::Thread final
+class Thread final
 {
 public:
-    /** Start a new thread. */
-    Thread();
+    /** Start a new thread
+     *
+     * Thread will be pinned to a given core id if value is non-negative
+     *
+     * @param[in] core_pin Core id to pin the thread on. If negative no thread pinning will take place
+     */
+    explicit Thread(int core_pin = -1);
 
     Thread(const Thread &) = delete;
     Thread &operator=(const Thread &) = delete;
@@ -157,14 +204,16 @@ private:
     bool                               _wait_for_work{ false };
     bool                               _job_complete{ true };
     std::exception_ptr                 _current_exception{ nullptr };
+    int                                _core_pin{ -1 };
 };
 
-CPPScheduler::Impl::Thread::Thread()
+Thread::Thread(int core_pin)
+    : _core_pin(core_pin)
 {
     _thread = std::thread(&Thread::worker_thread, this);
 }
 
-CPPScheduler::Impl::Thread::~Thread()
+Thread::~Thread()
 {
     // Make sure worker thread has ended
     if(_thread.joinable())
@@ -175,7 +224,7 @@ CPPScheduler::Impl::Thread::~Thread()
     }
 }
 
-void CPPScheduler::Impl::Thread::start(std::vector<IScheduler::Workload> *workloads, ThreadFeeder &feeder, const ThreadInfo &info)
+void Thread::start(std::vector<IScheduler::Workload> *workloads, ThreadFeeder &feeder, const ThreadInfo &info)
 {
     _workloads = workloads;
     _feeder    = &feeder;
@@ -188,7 +237,7 @@ void CPPScheduler::Impl::Thread::start(std::vector<IScheduler::Workload> *worklo
     _cv.notify_one();
 }
 
-void CPPScheduler::Impl::Thread::wait()
+void Thread::wait()
 {
     {
         std::unique_lock<std::mutex> lock(_m);
@@ -201,8 +250,10 @@ void CPPScheduler::Impl::Thread::wait()
     }
 }
 
-void CPPScheduler::Impl::Thread::worker_thread()
+void Thread::worker_thread()
 {
+    set_thread_affinity(_core_pin);
+
     while(true)
     {
         std::unique_lock<std::mutex> lock(_m);
@@ -235,6 +286,44 @@ void CPPScheduler::Impl::Thread::worker_thread()
         _cv.notify_one();
     }
 }
+} //namespace
+
+struct CPPScheduler::Impl final
+{
+    explicit Impl(unsigned int thread_hint)
+        : _num_threads(thread_hint), _threads(_num_threads - 1)
+    {
+    }
+    void set_num_threads(unsigned int num_threads, unsigned int thread_hint)
+    {
+        _num_threads = num_threads == 0 ? thread_hint : num_threads;
+        _threads.resize(_num_threads - 1);
+    }
+    void set_num_threads_with_affinity(unsigned int num_threads, unsigned int thread_hint, BindFunc func)
+    {
+        _num_threads = num_threads == 0 ? thread_hint : num_threads;
+
+        // Set affinity on main thread
+        set_thread_affinity(func(0, thread_hint));
+
+        // Set affinity on worked threads
+        _threads.clear();
+        for(auto i = 1U; i < _num_threads; ++i)
+        {
+            _threads.emplace_back(func(i, thread_hint));
+        }
+    }
+    unsigned int num_threads() const
+    {
+        return _num_threads;
+    }
+
+    void run_workloads(std::vector<IScheduler::Workload> &workloads);
+
+    unsigned int       _num_threads;
+    std::list<Thread>  _threads;
+    arm_compute::Mutex _run_workloads_mutex{};
+};
 
 /*
  * This singleton has been deprecated and will be removed in the next release
@@ -257,6 +346,13 @@ void CPPScheduler::set_num_threads(unsigned int num_threads)
     // No changes in the number of threads while current workloads are running
     arm_compute::lock_guard<std::mutex> lock(_impl->_run_workloads_mutex);
     _impl->set_num_threads(num_threads, num_threads_hint());
+}
+
+void CPPScheduler::set_num_threads_with_affinity(unsigned int num_threads, BindFunc func)
+{
+    // No changes in the number of threads while current workloads are running
+    arm_compute::lock_guard<std::mutex> lock(_impl->_run_workloads_mutex);
+    _impl->set_num_threads_with_affinity(num_threads, num_threads_hint(), func);
 }
 
 unsigned int CPPScheduler::num_threads() const
@@ -309,55 +405,124 @@ void CPPScheduler::run_workloads(std::vector<IScheduler::Workload> &workloads)
 }
 #endif /* DOXYGEN_SKIP_THIS */
 
-void CPPScheduler::schedule(ICPPKernel *kernel, const Hints &hints)
+void CPPScheduler::schedule_common(ICPPKernel *kernel, const Hints &hints, ITensorPack &tensors)
 {
     ARM_COMPUTE_ERROR_ON_MSG(!kernel, "The child class didn't set the kernel");
 
-    const Window      &max_window     = kernel->window();
-    const unsigned int num_iterations = max_window.num_iterations(hints.split_dimension());
-    const unsigned int num_threads    = std::min(num_iterations, _impl->_num_threads);
+    const Window &max_window = kernel->window();
 
-    if(num_iterations == 0)
+    if(hints.split_dimension() == IScheduler::split_dimensions_all)
     {
-        return;
-    }
+        /*
+         * if the split dim is size_t max then this signals we should parallelise over
+         * all dimensions
+         */
+        const std::size_t m = max_window.num_iterations(Window::DimX);
+        const std::size_t n = max_window.num_iterations(Window::DimY);
 
-    if(!kernel->is_parallelisable() || num_threads == 1)
-    {
-        ThreadInfo info;
-        info.cpu_info = &_cpu_info;
-        kernel->run(max_window, info);
-    }
-    else
-    {
-        unsigned int num_windows = 0;
-        switch(hints.strategy())
+        //in c++17 this can be swapped for   auto [ m_threads, n_threads ] = split_2d(...
+        unsigned m_threads, n_threads;
+        std::tie(m_threads, n_threads) = split_2d(_impl->_num_threads, m, n);
+
+        std::vector<IScheduler::Workload> workloads;
+        for(unsigned int ni = 0; ni != n_threads; ++ni)
         {
-            case StrategyHint::STATIC:
-                num_windows = num_threads;
-                break;
-            case StrategyHint::DYNAMIC:
+            for(unsigned int mi = 0; mi != m_threads; ++mi)
             {
-                const unsigned int granule_threshold = (hints.threshold() <= 0) ? num_threads : static_cast<unsigned int>(hints.threshold());
-                // Make sure we don't use some windows which are too small as this might create some contention on the ThreadFeeder
-                num_windows = num_iterations > granule_threshold ? granule_threshold : num_iterations;
-                break;
+                workloads.push_back(
+                    [ni, mi, m_threads, n_threads, &max_window, &kernel](const ThreadInfo & info)
+                {
+                    //narrow the window to our mi-ni workload
+                    Window win = max_window.split_window(Window::DimX, mi, m_threads)
+                                 .split_window(Window::DimY, ni, n_threads);
+
+                    win.validate();
+
+                    Window thread_locator;
+                    thread_locator.set(Window::DimX, Window::Dimension(mi, m_threads));
+                    thread_locator.set(Window::DimY, Window::Dimension(ni, n_threads));
+
+                    thread_locator.validate();
+
+                    kernel->run_nd(win, info, thread_locator);
+                });
             }
-            default:
-                ARM_COMPUTE_ERROR("Unknown strategy");
-        }
-        std::vector<IScheduler::Workload> workloads(num_windows);
-        for(unsigned int t = 0; t < num_windows; t++)
-        {
-            //Capture 't' by copy, all the other variables by reference:
-            workloads[t] = [t, &hints, &max_window, &num_windows, &kernel](const ThreadInfo & info)
-            {
-                Window win = max_window.split_window(hints.split_dimension(), t, num_windows);
-                win.validate();
-                kernel->run(win, info);
-            };
         }
         run_workloads(workloads);
     }
+    else
+    {
+        const unsigned int num_iterations = max_window.num_iterations(hints.split_dimension());
+        const unsigned int num_threads    = std::min(num_iterations, _impl->_num_threads);
+
+        if(num_iterations == 0)
+        {
+            return;
+        }
+
+        if(!kernel->is_parallelisable() || num_threads == 1)
+        {
+            ThreadInfo info;
+            info.cpu_info = &_cpu_info;
+            if(tensors.empty())
+            {
+                kernel->run(max_window, info);
+            }
+            else
+            {
+                kernel->run_op(tensors, max_window, info);
+            }
+        }
+        else
+        {
+            unsigned int num_windows = 0;
+            switch(hints.strategy())
+            {
+                case StrategyHint::STATIC:
+                    num_windows = num_threads;
+                    break;
+                case StrategyHint::DYNAMIC:
+                {
+                    const unsigned int granule_threshold = (hints.threshold() <= 0) ? num_threads : static_cast<unsigned int>(hints.threshold());
+                    // Make sure we don't use some windows which are too small as this might create some contention on the ThreadFeeder
+                    num_windows = num_iterations > granule_threshold ? granule_threshold : num_iterations;
+                    break;
+                }
+                default:
+                    ARM_COMPUTE_ERROR("Unknown strategy");
+            }
+            std::vector<IScheduler::Workload> workloads(num_windows);
+            for(unsigned int t = 0; t < num_windows; t++)
+            {
+                //Capture 't' by copy, all the other variables by reference:
+                workloads[t] = [t, &hints, &max_window, &num_windows, &kernel, &tensors](const ThreadInfo & info)
+                {
+                    Window win = max_window.split_window(hints.split_dimension(), t, num_windows);
+                    win.validate();
+
+                    if(tensors.empty())
+                    {
+                        kernel->run(win, info);
+                    }
+                    else
+                    {
+                        kernel->run_op(tensors, win, info);
+                    }
+                };
+            }
+            run_workloads(workloads);
+        }
+    }
+}
+
+void CPPScheduler::schedule_op(ICPPKernel *kernel, const Hints &hints, ITensorPack &tensors)
+{
+    schedule_common(kernel, hints, tensors);
+}
+
+void CPPScheduler::schedule(ICPPKernel *kernel, const Hints &hints)
+{
+    ITensorPack tensors;
+    schedule_common(kernel, hints, tensors);
 }
 } // namespace arm_compute

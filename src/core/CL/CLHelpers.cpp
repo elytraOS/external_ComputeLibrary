@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020 ARM Limited.
+ * Copyright (c) 2016-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -218,11 +218,6 @@ std::string get_data_size_from_data_type(const DataType &dt)
     }
 }
 
-std::string get_underlying_cl_type_from_data_type(const DataType &dt)
-{
-    return get_cl_type_from_data_type(dt);
-}
-
 GPUTarget get_target_from_device(const cl::Device &device)
 {
     // Query device name size
@@ -370,6 +365,27 @@ bool preferred_dummy_work_items_support(const cl::Device &device)
     return true;
 }
 
+bool image2d_from_buffer_supported(const cl::Device &device)
+{
+    return device_supports_extension(device, "cl_khr_image2d_from_buffer");
+}
+
+size_t get_cl_image_pitch_alignment(const cl::Device &device)
+{
+    cl_uint pixel_aligment = 0;
+
+    cl_int err = clGetDeviceInfo(device(), CL_DEVICE_IMAGE_PITCH_ALIGNMENT, sizeof(cl_uint), &pixel_aligment, nullptr);
+
+    if(err == CL_SUCCESS)
+    {
+        return pixel_aligment;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
 cl::Kernel create_opencl_kernel(CLCoreRuntimeContext *ctx, const std::string &kernel_name, const CLBuildOptions &build_opts)
 {
     if(ctx && ctx->kernel_library())
@@ -382,6 +398,14 @@ cl::Kernel create_opencl_kernel(CLCoreRuntimeContext *ctx, const std::string &ke
         // Legacy code through the singleton
         return static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel(kernel_name, build_opts.options()));
     }
+}
+
+cl::Kernel create_kernel(const CLCompileContext &ctx, const std::string &kernel_name, const std::set<std::string> &build_opts)
+{
+    const std::string program_name = CLKernelLibrary::get().get_program_name(kernel_name);
+    std::pair<std::string, bool> kernel_src = CLKernelLibrary::get().get_program(program_name);
+    const std::string kernel_path = CLKernelLibrary::get().get_kernel_path();
+    return static_cast<cl::Kernel>(ctx.create_kernel(kernel_name, program_name, kernel_src.first, kernel_path, build_opts, kernel_src.second));
 }
 
 cl::NDRange create_lws_hint_parallel_implementations(unsigned int input_dimension, unsigned int vector_size)

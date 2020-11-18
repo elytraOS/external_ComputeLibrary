@@ -1,5 +1,5 @@
 ///
-/// Copyright (c) 2018-2019 ARM Limited.
+/// Copyright (c) 2018-2019 Arm Limited.
 ///
 /// SPDX-License-Identifier: MIT
 ///
@@ -66,7 +66,6 @@ namespace arm_compute
         - @ref NEScharr3x3
         - @ref NESelect
         - @ref NESobel3x3
-        - @ref NESplit
         - @ref NEStridedSlice
         - @ref NEWarpAffine
         - @ref NEWarpPerspective
@@ -92,7 +91,6 @@ namespace arm_compute
         - @ref NEFullyConnectedLayerReshapeWeights
         - @ref NEGather
         - @ref NEGEMMInterleave4x4
-        - @ref NEGEMMLowpQuantizeDownInt32ToUint8Scale
         - @ref NEGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint
         - @ref NEGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint
         - @ref NEGEMMTranspose1xW
@@ -124,7 +122,6 @@ namespace arm_compute
     - @ref NEDeconvolutionLayer
     - @ref NEDepthwiseConvolutionAssemblyDispatch
     - @ref NEDepthwiseConvolutionLayer
-    - @ref NEDepthwiseConvolutionLayerOptimized
     - @ref NEDequantizationLayer
     - @ref NEDerivative
     - @ref NEDetectionPostProcessLayer
@@ -161,6 +158,8 @@ namespace arm_compute
     - @ref NELocallyConnectedLayer
     - @ref NELSTMLayer
     - @ref NELSTMLayerQuantized
+    - @ref NEQLSTMLayer
+    - @ref NEMaxUnpoolingLayer
     - @ref NEMeanStdDev
     - @ref NEMinMaxLocation
     - @ref NENormalizationLayer
@@ -180,6 +179,7 @@ namespace arm_compute
     - @ref NESoftmaxLayerGeneric &lt;IS_LOG&gt;
     - @ref NESpaceToBatchLayer
     - @ref NESpaceToDepthLayer
+    - @ref NESplit
     - @ref NEStackLayer
     - @ref NEUnstack
     - @ref NEUpsampleLayer
@@ -201,7 +201,6 @@ namespace arm_compute
     - @ref CLDeconvolutionLayerUpsample
     - @ref CLDepthToSpaceLayer
     - @ref CLDepthwiseConvolutionLayer
-    - @ref CLDepthwiseConvolutionLayer3x3
     - @ref CLDequantizationLayer
     - @ref CLDirectConvolutionLayer
     - @ref CLDirectDeconvolutionLayer
@@ -234,6 +233,8 @@ namespace arm_compute
     - @ref CLLocallyConnectedLayer
     - @ref CLLSTMLayer
     - @ref CLLSTMLayerQuantized
+    - @ref CLQLSTMLayer
+    - @ref CLMaxUnpoolingLayer
     - @ref CLMeanStdDev
     - @ref CLMinMaxLocation
     - @ref CLNormalizationLayer
@@ -297,10 +298,8 @@ namespace arm_compute
         - @ref CLFullyConnectedLayerReshapeWeights
         - @ref CLGather
         - @ref CLGaussian3x3
-        - @ref CLGEMMLowpQuantizeDownInt32ToUint8Scale
         - @ref CLGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint
         - @ref CLGEMMLowpQuantizeDownInt32ToInt8ScaleByFixedPoint
-        - @ref CLGEMMLowpQuantizeDownInt32ToUint8ScaleByFloat
         - @ref CLMagnitude
         - @ref CLMeanStdDevNormalizationLayer
         - @ref CLMedian3x3

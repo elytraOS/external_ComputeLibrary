@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -28,7 +28,6 @@
 #include "arm_compute/core/ITensor.h"
 #include "arm_compute/core/TensorInfo.h"
 #include "arm_compute/core/Validate.h"
-#include "support/ToolchainSupport.h"
 
 #include <cstddef>
 
@@ -74,7 +73,7 @@ void NELaplacianReconstruct::configure(const IPyramid *pyramid, ITensor *input, 
     // Scale levels n-1 to 1, and add levels n-2 to 0
     for(size_t l = 0; l < last_level; ++l)
     {
-        _scalef[l].configure(_tmp_pyr.get_pyramid_level(l + 1), _tmp_pyr.get_pyramid_level(l), arm_compute::InterpolationPolicy::NEAREST_NEIGHBOR, border_mode, constant_border_value);
+        _scalef[l].configure(_tmp_pyr.get_pyramid_level(l + 1), _tmp_pyr.get_pyramid_level(l), ScaleKernelInfo{ arm_compute::InterpolationPolicy::NEAREST_NEIGHBOR, border_mode, constant_border_value });
         _addf[l].configure(_tmp_pyr.get_pyramid_level(l), pyramid->get_pyramid_level(l), _tmp_pyr.get_pyramid_level(l), ConvertPolicy::SATURATE);
     }
 

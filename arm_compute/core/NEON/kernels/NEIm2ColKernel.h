@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -77,8 +77,9 @@ public:
     /** Set the input and output of the kernel.
      *
      * @param[in]  input       The input tensor to convert. 3 lower dimensions represent a single input [width, height, IFM],
-     *                         while every optional dimension from 4 and above represent a batch of inputs. Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32
-     *                         Note: QASYMM8 works only for has_bias = false
+     *                         while every optional dimension from 4 and above represent a batch of inputs.
+     *                         Data types supported: QASYMM8/QASYMM8_SIGNED/BFLOAT16/F16/F32
+     *                         Note: QASYMM8/QASYMM8_SIGNED works only for has_bias = false
      * @param[out] output      The output tensor. Data types supported: Same as @p input
      * @param[in]  kernel_dims The kernel dimensions (width and height).
      * @param[in]  conv_info   Contains padding and stride information described in @ref PadStrideInfo.
@@ -91,8 +92,9 @@ public:
     /** Static function to check if given info will lead to a valid configuration of @ref NEIm2ColKernel
      *
      * @param[in] input       The input tensor to convert. 3 lower dimensions represent a single input [width, height, IFM],
-     *                        while every optional dimension from 4 and above represent a batch of inputs. Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32
-     *                        Note: QASYMM8 works only for has_bias = false
+     *                        while every optional dimension from 4 and above represent a batch of inputs.
+     *                        Data types supported: QASYMM8/QASYMM8_SIGNED/BFLOAT16/F16/F32
+     *                        Note: QASYMM8/QASYMM8_SIGNED works only for has_bias = false
      * @param[in] output      The output tensor. Data types supported: Same as @p input
      * @param[in] kernel_dims The kernel dimensions (width and height).
      * @param[in] conv_info   Contains padding and stride information described in @ref PadStrideInfo.

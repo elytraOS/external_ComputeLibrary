@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,23 +23,10 @@
  */
 #include "arm_compute/core/NEON/kernels/NEReverseKernel.h"
 
-#include "arm_compute/core/AccessWindowStatic.h"
-#include "arm_compute/core/CPP/Validate.h"
-#include "arm_compute/core/Helpers.h"
-#include "arm_compute/core/ITensor.h"
-#include "arm_compute/core/NEON/NEAsymm.h"
-#include "arm_compute/core/NEON/NEFixedPoint.h"
-#include "arm_compute/core/NEON/NEMath.h"
 #include "arm_compute/core/NEON/wrapper/wrapper.h"
 #include "arm_compute/core/TensorInfo.h"
-#include "arm_compute/core/Utils.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/Window.h"
-
-#include <arm_neon.h>
-#include <array>
-#include <cmath>
-#include <map>
 
 namespace arm_compute
 {
@@ -48,7 +35,7 @@ namespace
 Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, const ITensorInfo *axis)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output, axis);
-    ARM_COMPUTE_RETURN_ERROR_ON_CPU_F16_UNSUPPORTED(input);
+    //Note: ARM_COMPUTE_RETURN_ERROR_ON_CPU_F16_UNSUPPORTED(input) is not needed here as this kernel doesn't use NEON FP16 instructions.
     ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
     ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(axis, 1, DataType::U32);
     ARM_COMPUTE_RETURN_ERROR_ON_MSG(axis->num_dimensions() > 1, "Axis must be a 1D tensor");
@@ -106,33 +93,20 @@ void run_reverse(const Window &window, const ITensor *input, const ITensor *axis
     }
 
     // Check if we need a left-over loop for the y dimension
-    const int window_step_x            = 16 / input->info()->element_size();
-    const int window_start_x           = window.x().start();
-    const int window_end_x             = std::min(window.x().end(), static_cast<int>(input->info()->dimension(0)));
-    const int window_end_x_multiple_of = ((window_end_x - window_start_x) / window_step_x) * window_step_x;
-    bool      left_over_loop_x         = (((window_end_x - window_start_x) % window_step_x) != 0);
+    const int window_step_x  = 16 / input->info()->element_size();
+    const int window_start_x = window.x().start();
+    const int window_end_x   = window.x().end();
 
-    Window slice = window.first_slice_window_4D();
+    Window win(window);
+    win.set(Window::DimX, Window::Dimension(0, 1, 1));
 
-    if(left_over_loop_x)
+    Iterator input_it(input, win);
+    execute_window_loop(win, [&](const Coordinates & id)
     {
-        // Check if window_end_y_multiple_of is greater than window_start_y
-        if(window_end_x_multiple_of > window_start_x)
+        int x = window_start_x;
+        for(; x <= (window_end_x - window_step_x); x += window_step_x)
         {
-            slice.set(Window::DimX, Window::Dimension(window_start_x, window_end_x_multiple_of, window_step_x));
-        }
-        else
-        {
-            slice.set(Window::DimX, Window::Dimension(0, 0, 1));
-        }
-    }
-
-    do
-    {
-        Iterator input_it(input, slice);
-        execute_window_loop(slice, [&](const Coordinates & id)
-        {
-            auto in = wrapper::vloadq(reinterpret_cast<T *>(input_it.ptr()));
+            auto in = wrapper::vloadq(reinterpret_cast<T *>(input_it.ptr()) + x);
 
             // Reverse 0 axis
             if(axis_bit & 0x1)
@@ -141,39 +115,29 @@ void run_reverse(const Window &window, const ITensor *input, const ITensor *axis
                 in = wrapper::vcombine(wrapper::vgethigh(in), wrapper::vgetlow(in));
             }
 
-            const int offset_x = (axis_bit & 0x1) ? output->info()->dimension(0) - id.x() - window_step_x : id.x();
+            const int offset_x = (axis_bit & 0x1) ? output->info()->dimension(0) - x - window_step_x : x;
             const int offset_y = (axis_bit & 0x2) ? output->info()->dimension(1) - id.y() - 1 : id.y();
             const int offset_z = (axis_bit & 0x4) ? output->info()->dimension(2) - id.z() - 1 : id.z();
             const int offset_w = (axis_bit & 0x8) ? output->info()->dimension(3) - id[3] - 1 : id[3];
 
             auto out_ptr = reinterpret_cast<T *>(output->ptr_to_element(Coordinates(offset_x, offset_y, offset_z, offset_w)));
             wrapper::vstore(out_ptr, in);
-        },
-        input_it);
-
-        if(left_over_loop_x)
-        {
-            slice.set(Window::DimX, Window::Dimension(window_end_x_multiple_of, window_end_x, 1));
-
-            Iterator input_it(input, slice);
-
-            // Compute left-over elements along the y dimension (1x1)
-            execute_window_loop(slice, [&](const Coordinates & id)
-            {
-                const auto in = *reinterpret_cast<T *>(input_it.ptr());
-
-                const int offset_x = (axis_bit & 0x1) ? output->info()->dimension(0) - id.x() - 1 : id.x();
-                const int offset_y = (axis_bit & 0x2) ? output->info()->dimension(1) - id.y() - 1 : id.y();
-                const int offset_z = (axis_bit & 0x4) ? output->info()->dimension(2) - id.z() - 1 : id.z();
-                const int offset_w = (axis_bit & 0x8) ? output->info()->dimension(3) - id[3] - 1 : id[3];
-
-                *reinterpret_cast<T *>(output->ptr_to_element(Coordinates(offset_x, offset_y, offset_z, offset_w))) = in;
-            },
-            input_it);
         }
 
-    }
-    while(window.slide_window_slice_4D(slice));
+        // Compute left-over elements
+        for(; x < window_end_x; ++x)
+        {
+            const auto in = *(reinterpret_cast<T *>(input_it.ptr()) + x);
+
+            const int offset_x = (axis_bit & 0x1) ? output->info()->dimension(0) - x - 1 : x;
+            const int offset_y = (axis_bit & 0x2) ? output->info()->dimension(1) - id.y() - 1 : id.y();
+            const int offset_z = (axis_bit & 0x4) ? output->info()->dimension(2) - id.z() - 1 : id.z();
+            const int offset_w = (axis_bit & 0x8) ? output->info()->dimension(3) - id[3] - 1 : id[3];
+
+            *reinterpret_cast<T *>(output->ptr_to_element(Coordinates(offset_x, offset_y, offset_z, offset_w))) = in;
+        }
+    },
+    input_it);
 }
 
 void NEReverseKernel::run(const Window &window, const ThreadInfo &info)
@@ -182,28 +146,19 @@ void NEReverseKernel::run(const Window &window, const ThreadInfo &info)
     ARM_COMPUTE_ERROR_ON_UNCONFIGURED_KERNEL(this);
     ARM_COMPUTE_ERROR_ON_INVALID_SUBWINDOW(INEKernel::window(), window);
 
-    switch(_input->info()->data_type())
+    switch(_input->info()->element_size())
     {
-        case DataType::F32:
-        case DataType::U32:
-        case DataType::S32:
+        case 4:
             run_reverse<uint32_t>(window, _input, _axis, _output);
             break;
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
-        case DataType::F16:
-#endif // __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
-        case DataType::S16:
-        case DataType::U16:
+        case 2:
             run_reverse<uint16_t>(window, _input, _axis, _output);
             break;
-        case DataType::QASYMM8:
-        case DataType::QASYMM8_SIGNED:
-        case DataType::U8:
-        case DataType::S8:
+        case 1:
             run_reverse<uint8_t>(window, _input, _axis, _output);
             break;
         default:
-            ARM_COMPUTE_ERROR("Data type not supported");
+            ARM_COMPUTE_ERROR("Element size not supported");
     }
 }
 } // namespace arm_compute

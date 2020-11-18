@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,22 +24,19 @@
 #include "arm_compute/runtime/CL/functions/CLReductionOperation.h"
 
 #include "arm_compute/core/CL/ICLTensor.h"
-#include "arm_compute/core/CL/kernels/CLReductionOperationKernel.h"
-#include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/PixelValue.h"
 #include "arm_compute/core/TensorInfo.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
 #include "arm_compute/runtime/CL/CLScheduler.h"
-#include "arm_compute/runtime/Tensor.h"
 #include "arm_compute/runtime/Utils.h"
-#include "support/ToolchainSupport.h"
+#include "support/MemorySupport.h"
 
 namespace arm_compute
 {
 CLReductionOperation::CLReductionOperation(std::shared_ptr<IMemoryManager> memory_manager)
-    : _memory_group(std::move(memory_manager)), _results_vector(), _reduction_kernels_vector(), _border_handlers_vector(), _reshape_kernel(), _op(), _num_of_stages(), _reduction_axis(), _is_serial(),
+    : _memory_group(std::move(memory_manager)), _results_vector(), _reduction_kernels_vector(), _border_handlers_vector(), _reshape(), _num_of_stages(), _reduction_axis(), _is_serial(),
       _is_reshape_required(false)
 {
 }
@@ -152,7 +149,7 @@ Status CLReductionOperation::validate(const ITensorInfo *input, const ITensorInf
 
     if(is_reshape_required)
     {
-        ARM_COMPUTE_RETURN_ON_ERROR(CLReshapeLayerKernel::validate(output_internal, output));
+        ARM_COMPUTE_RETURN_ON_ERROR(CLReshapeLayer::validate(output_internal, output));
     }
 
     return Status{};
@@ -191,8 +188,12 @@ ICLTensor *CLReductionOperation::configure_intermediate_result_vector(ICLTensor 
 
 void CLReductionOperation::configure(ICLTensor *input, ICLTensor *output, unsigned int axis, ReductionOperation op, bool keep_dims)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input, output, axis, op, keep_dims);
+}
+
+void CLReductionOperation::configure(const CLCompileContext &compile_context, ICLTensor *input, ICLTensor *output, unsigned int axis, ReductionOperation op, bool keep_dims)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
-    _op                  = op;
     _num_of_stages       = calculate_number_of_stages_only_x_axis(input->info()->dimension(0), axis);
     _reduction_axis      = axis;
     _is_serial           = needs_serialized_reduction(op, input->info()->data_type(), axis);
@@ -218,7 +219,7 @@ void CLReductionOperation::configure(ICLTensor *input, ICLTensor *output, unsign
             _memory_group.manage(&_results_vector.back());
         }
 
-        _reduction_kernels_vector[0].configure(input, output_internal, axis, op, 0);
+        _reduction_kernels_vector[0].configure(compile_context, input, output_internal, axis, op, 0);
     }
     else
     {
@@ -254,79 +255,27 @@ void CLReductionOperation::configure(ICLTensor *input, ICLTensor *output, unsign
                 first_kernel_op        = ReductionOperation::MIN;
                 intermediate_kernel_op = ReductionOperation::MIN;
                 last_kernel_op         = ReductionOperation::MIN;
-                switch(input->info()->data_type())
-                {
-                    case DataType::F32:
-                    {
-                        pixelValue = PixelValue(std::numeric_limits<float>::max());
-                        break;
-                    }
-                    case DataType::F16:
-                    {
-                        pixelValue = PixelValue(static_cast<half>(65504.0f));
-                        break;
-                    }
-                    case DataType::QASYMM8:
-                    {
-                        pixelValue = std::get<1>(get_min_max(input->info()->data_type()));
-                        break;
-                    }
-                    case DataType::QASYMM8_SIGNED:
-                    {
-                        pixelValue = PixelValue(127, input->info()->data_type(), input->info()->quantization_info());
-                        break;
-                    }
-                    default:
-                    {
-                        ARM_COMPUTE_ERROR("Unsupported DataType");
-                    }
-                }
+                pixelValue             = std::get<1>(get_min_max(input->info()->data_type()));
                 break;
             case ReductionOperation::MAX:
                 first_kernel_op        = ReductionOperation::MAX;
                 intermediate_kernel_op = ReductionOperation::MAX;
                 last_kernel_op         = ReductionOperation::MAX;
-                switch(input->info()->data_type())
-                {
-                    case DataType::F32:
-                    {
-                        pixelValue = PixelValue(-std::numeric_limits<float>::max());
-                        break;
-                    }
-                    case DataType::F16:
-                    {
-                        pixelValue = PixelValue(static_cast<half>(-65504.0f));
-                        break;
-                    }
-                    case DataType::QASYMM8:
-                    {
-                        pixelValue = std::get<0>(get_min_max(input->info()->data_type()));
-                        break;
-                    }
-                    case DataType::QASYMM8_SIGNED:
-                    {
-                        pixelValue = PixelValue(-128, input->info()->data_type(), input->info()->quantization_info());
-                        break;
-                    }
-                    default:
-                    {
-                        ARM_COMPUTE_ERROR("Unsupported DataType");
-                    }
-                }
+                pixelValue             = std::get<0>(get_min_max(input->info()->data_type()));
                 break;
             default:
                 ARM_COMPUTE_ERROR("Not supported");
         }
 
-        _reduction_kernels_vector[0].configure(input, &_results_vector[0], axis, first_kernel_op);
-        _border_handlers_vector[0].configure(input, _reduction_kernels_vector[0].border_size(), BorderMode::CONSTANT, pixelValue);
+        _reduction_kernels_vector[0].configure(compile_context, input, &_results_vector[0], axis, first_kernel_op);
+        _border_handlers_vector[0].configure(compile_context, input, _reduction_kernels_vector[0].border_size(), BorderMode::CONSTANT, pixelValue);
 
         // Apply ReductionOperation on intermediate stages
         for(unsigned int i = 1; i < _num_of_stages - 1; ++i)
         {
             _memory_group.manage(&_results_vector[i]);
-            _reduction_kernels_vector[i].configure(&_results_vector[i - 1], &_results_vector[i], axis, intermediate_kernel_op);
-            _border_handlers_vector[i].configure(&_results_vector[i - 1], _reduction_kernels_vector[i].border_size(), BorderMode::CONSTANT, pixelValue);
+            _reduction_kernels_vector[i].configure(compile_context, &_results_vector[i - 1], &_results_vector[i], axis, intermediate_kernel_op);
+            _border_handlers_vector[i].configure(compile_context, &_results_vector[i - 1], _reduction_kernels_vector[i].border_size(), BorderMode::CONSTANT, pixelValue);
             _results_vector[i - 1].allocator()->allocate();
         }
 
@@ -339,14 +288,14 @@ void CLReductionOperation::configure(ICLTensor *input, ICLTensor *output, unsign
             _memory_group.manage(&_results_vector.back());
         }
 
-        _reduction_kernels_vector[last_stage].configure(&_results_vector[last_stage - 1], output_internal, axis, last_kernel_op, input_width);
-        _border_handlers_vector[last_stage].configure(&_results_vector[last_stage - 1], _reduction_kernels_vector[last_stage].border_size(), BorderMode::CONSTANT, pixelValue);
+        _reduction_kernels_vector[last_stage].configure(compile_context, &_results_vector[last_stage - 1], output_internal, axis, last_kernel_op, input_width);
+        _border_handlers_vector[last_stage].configure(compile_context, &_results_vector[last_stage - 1], _reduction_kernels_vector[last_stage].border_size(), BorderMode::CONSTANT, pixelValue);
         _results_vector[last_stage - 1].allocator()->allocate();
     }
 
     if(_is_reshape_required)
     {
-        _reshape_kernel.configure(&_results_vector.back(), output);
+        _reshape.configure(compile_context, &_results_vector.back(), output);
         _results_vector.back().allocator()->allocate();
     }
 }
@@ -370,7 +319,7 @@ void CLReductionOperation::run()
 
     if(_is_reshape_required)
     {
-        CLScheduler::get().enqueue(_reshape_kernel, false);
+        _reshape.run();
     }
 }
 } // namespace arm_compute

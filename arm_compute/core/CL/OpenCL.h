@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -62,7 +62,7 @@ class CLSymbols final
 {
 public:
     /** Default Constructor */
-    CLSymbols() = default;
+    CLSymbols() noexcept(false);
     /** Load OpenCL symbols from handle
      *
      * @param[in] handle Handle to load symbols from
@@ -134,6 +134,7 @@ public:
     DECLARE_FUNCTION_PTR(clEnqueueSVMUnmap);
     DECLARE_FUNCTION_PTR(clEnqueueMarker);
     DECLARE_FUNCTION_PTR(clWaitForEvents);
+    DECLARE_FUNCTION_PTR(clCreateImage);
 
     // Third-party extensions
     DECLARE_FUNCTION_PTR(clImportMemoryARM);
@@ -141,7 +142,7 @@ public:
 #undef DECLARE_FUNCTION_PTR
 
 private:
-    std::pair<bool, bool> _loaded{ false, false };
+    std::pair<bool, bool> _loaded;
 };
 } // namespace arm_compute
 #endif /* ARM_COMPUTE_OPENCL_H */

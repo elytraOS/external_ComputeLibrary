@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020 ARM Limited.
+ * Copyright (c) 2016-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,15 +26,14 @@
 
 #include "arm_compute/core/CL/CLTypes.h"
 #include "arm_compute/core/CL/OpenCL.h"
-#include "arm_compute/core/GPUTarget.h"
-#include "arm_compute/core/Helpers.h"
-#include "support/ToolchainSupport.h"
 
+#include <set>
 #include <string>
 
 namespace arm_compute
 {
 class CLCoreRuntimeContext;
+class CLCompileContext;
 class CLBuildOptions;
 
 enum class DataType;
@@ -98,14 +97,6 @@ std::string get_cl_dot8_acc_type_from_data_type(const DataType &dt);
  */
 std::string get_data_size_from_data_type(const DataType &dt);
 
-/** Translates fixed point tensor data type to the underlying OpenCL type.
- *
- * @param[in] dt @ref DataType to be translated to OpenCL type.
- *
- * @return The string specifying the underlying OpenCL type to be used.
- */
-std::string get_underlying_cl_type_from_data_type(const DataType &dt);
-
 /** Helper function to get the GPU target from CL device
  *
  * @param[in] device A CL device
@@ -121,6 +112,14 @@ GPUTarget get_target_from_device(const cl::Device &device);
  * @return the highest OpenCL version supported
  */
 CLVersion get_cl_version(const cl::Device &device);
+
+/** Helper function to get the cl_image pitch alignment in pixels
+ *
+ * @param[in] device A CL device
+ *
+ * @return the cl_image pitch alignment in pixels. If an error occurs, the function will return 0
+ */
+size_t get_cl_image_pitch_alignment(const cl::Device &device);
 
 /** Helper function to check whether a given extension is supported
  *
@@ -189,6 +188,14 @@ size_t preferred_vector_width(const cl::Device &device, DataType dt);
  */
 bool preferred_dummy_work_items_support(const cl::Device &device);
 
+/** Helper function to check whether the cl_khr_image2d_from_buffer extension is supported
+ *
+ * @param[in] device A CL device
+ *
+ * @return True if the extension is supported
+ */
+bool image2d_from_buffer_supported(const cl::Device &device);
+
 /** Creates an opencl kernel
  *
  * @param[in] ctx         A context to be used to create the opencl kernel.
@@ -198,6 +205,16 @@ bool preferred_dummy_work_items_support(const cl::Device &device);
  * @return An opencl kernel
  */
 cl::Kernel create_opencl_kernel(CLCoreRuntimeContext *ctx, const std::string &kernel_name, const CLBuildOptions &build_opts);
+
+/** Creates an opencl kernel using a compile context
+ *
+ * @param[in] ctx         A compile context to be used to create the opencl kernel.
+ * @param[in] kernel_name The kernel name.
+ * @param[in] build_opts  The build options to be used for the opencl kernel compilation.
+ *
+ * @return An opencl kernel
+ */
+cl::Kernel create_kernel(const CLCompileContext &ctx, const std::string &kernel_name, const std::set<std::string> &build_opts = std::set<std::string>());
 
 /** Creates a suitable LWS hint object for parallel implementations. Sets the number of WG based on the input size.
  *  If input width is smaller than 128 we can use fewer threads than 8.

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -25,22 +25,16 @@
 
 #include "arm_compute/core/AccessWindowStatic.h"
 #include "arm_compute/core/CL/CLHelpers.h"
-#include "arm_compute/core/CL/CLKernelLibrary.h"
 #include "arm_compute/core/CL/CLValidate.h"
 #include "arm_compute/core/CL/ICLTensor.h"
-#include "arm_compute/core/CL/OpenCL.h"
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/Window.h"
 
-#include <set>
-#include <sstream>
-#include <string>
-
-using namespace arm_compute;
-
+namespace arm_compute
+{
 CLLocallyConnectedMatrixMultiplyKernel::CLLocallyConnectedMatrixMultiplyKernel()
     : _input0(nullptr), _input1(nullptr), _output(nullptr)
 {
@@ -52,9 +46,7 @@ Status validate_arguments(const ITensorInfo *input0, const ITensorInfo *input1, 
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input0, input1, output);
     ARM_COMPUTE_RETURN_ERROR_ON_F16_UNSUPPORTED(input0);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input0, 1, DataType::F16, DataType::F32);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input1, 1, DataType::F16, DataType::F32);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(output, 1, DataType::F16, DataType::F32);
+    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input0, 1, DataType::F32);
     ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(input0, input1, output);
     ARM_COMPUTE_RETURN_ERROR_ON(input0->dimension(0) != input1->dimension(1));
 
@@ -83,6 +75,11 @@ std::tuple<Status, Window> validate_and_configure_window(ITensorInfo *input0, IT
 
 void CLLocallyConnectedMatrixMultiplyKernel::configure(const ICLTensor *input0, const ICLTensor *input1, ICLTensor *output)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input0, input1, output);
+}
+
+void CLLocallyConnectedMatrixMultiplyKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input0, const ICLTensor *input1, ICLTensor *output)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input0, input1, output);
     ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(input0->info(), input1->info(), output->info()));
 
@@ -108,7 +105,7 @@ void CLLocallyConnectedMatrixMultiplyKernel::configure(const ICLTensor *input0, 
 
     // Create kernel
     std::string data_type_name = lower_string(string_from_data_type(input0->info()->data_type()));
-    _kernel                    = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel(("gemm_lc_vm_" + data_type_name), build_opts));
+    _kernel                    = create_kernel(compile_context, ("gemm_lc_vm_" + data_type_name), build_opts);
 
     // Configure kernel window
     auto win_config = validate_and_configure_window(input0->info(), input1->info(), output->info());
@@ -147,3 +144,4 @@ void CLLocallyConnectedMatrixMultiplyKernel::run(const Window &window, cl::Comma
     }
     while(window.slide_window_slice_2D(slice));
 }
+} // namespace arm_compute

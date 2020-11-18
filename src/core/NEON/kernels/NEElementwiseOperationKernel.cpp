@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,26 +24,17 @@
 #include "arm_compute/core/NEON/kernels/NEElementwiseOperationKernel.h"
 
 #include "arm_compute/core/CPP/Validate.h"
-#include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/IAccessWindow.h"
-#include "arm_compute/core/ITensor.h"
 #include "arm_compute/core/NEON/NEAsymm.h"
 #include "arm_compute/core/NEON/NEFixedPoint.h"
 #include "arm_compute/core/NEON/wrapper/wrapper.h"
-#include "arm_compute/core/TensorInfo.h"
-#include "arm_compute/core/Validate.h"
 
-#include <algorithm>
 #include <arm_neon.h>
-#include <cstdint>
 #include <map>
-#include <string>
 
 namespace arm_compute
 {
-class Coordinates;
-
 namespace
 {
 float32x4x4_t load_quantized(const uint8_t *input1_ptr, const int32x4_t &offset, const float32x4_t &scale)
@@ -123,24 +114,6 @@ void store_quantized_signed(int8_t *output_ptr, const float32x4x4_t &rf, const f
         }
     };
     store_quantized_signed(output_ptr, out);
-}
-
-float32x4x4_t dup_quantized(qasymm8_t broadcast_value, int offset, float scale)
-{
-    const qasymm8x16_t broadcast_value_vec = vdupq_n_u8(broadcast_value);
-    const int32x4_t    voffset             = vdupq_n_s32(offset);
-    const float32x4_t  vscale              = vdupq_n_f32(scale);
-
-    const float32x4x4_t broadcast_vector =
-    {
-        {
-            vmulq_f32(vcvtq_f32_s32(vsubq_s32(vreinterpretq_s32_u32(vmovl_u16(vget_low_u16(vmovl_u8(vget_low_u8(broadcast_value_vec))))), voffset)), vscale),
-            vmulq_f32(vcvtq_f32_s32(vsubq_s32(vreinterpretq_s32_u32(vmovl_u16(vget_high_u16(vmovl_u8(vget_low_u8(broadcast_value_vec))))), voffset)), vscale),
-            vmulq_f32(vcvtq_f32_s32(vsubq_s32(vreinterpretq_s32_u32(vmovl_u16(vget_low_u16(vmovl_u8(vget_high_u8(broadcast_value_vec))))), voffset)), vscale),
-            vmulq_f32(vcvtq_f32_s32(vsubq_s32(vreinterpretq_s32_u32(vmovl_u16(vget_high_u16(vmovl_u8(vget_high_u8(broadcast_value_vec))))), voffset)), vscale),
-        }
-    };
-    return broadcast_vector;
 }
 
 template <ArithmeticOperation op, typename ScalarType>
@@ -605,6 +578,23 @@ inline int elementwise_comp_op_quantized_broadcast_loop(int window_start_x, int 
     return x;
 }
 
+template <ComparisonOperation op>
+inline int elementwise_comp_op_quantized_signed_broadcast_loop(int window_start_x, int window_end_x, int window_step_x,
+                                                               const int8_t *non_broadcast_input_ptr, float32x4x4_t broadcast_vector, uint8_t *output_ptr,
+                                                               int32x4_t voffset_non_broadcast, float32x4_t vscale_non_broadcast,
+                                                               float32x4_t voffseto, float32x4_t invvscaleo, bool reorder)
+{
+    ARM_COMPUTE_UNUSED(voffseto, invvscaleo);
+    int x = window_start_x;
+    for(; x <= (window_end_x - window_step_x); x += window_step_x)
+    {
+        const float32x4x4_t af = load_quantized_signed(non_broadcast_input_ptr + x, voffset_non_broadcast, vscale_non_broadcast);
+        const uint32x4x4_t  rf = elementwise_comp_op<op>(reorder ? broadcast_vector : af, reorder ? af : broadcast_vector);
+        store_quantized(output_ptr + x, rf);
+    }
+    return x;
+}
+
 template <typename InputScalarType, typename OutputScalarType, typename InputVectorType>
 void elementwise_op(const ITensor *in1, const ITensor *in2, ITensor *out, const Window &window,
                     OutputScalarType (*scalar_func)(const InputScalarType &, const InputScalarType &),
@@ -737,7 +727,7 @@ void elementwise_op_quantized(const ITensor *in1, const ITensor *in2, ITensor *o
             const auto output_ptr              = reinterpret_cast<uint8_t *>(output.ptr());
 
             const uint8_t       broadcast_value  = *reinterpret_cast<const uint8_t *>(broadcast_input.ptr());
-            const float32x4x4_t broadcast_vector = dup_quantized(broadcast_value, broadcast_qinfo.offset, broadcast_qinfo.scale);
+            const float32x4x4_t broadcast_vector = vdequantize(vdupq_n_u8(broadcast_value), broadcast_qinfo);
 
             int x = (*broadcast_func)(window_start_x, window_end_x, window_step_x, non_broadcast_input_ptr, broadcast_vector, output_ptr,
                                       voffset_non_broadcast, vscale_non_broadcast, voffseto, invvscaleo, !is_broadcast_input_2);
@@ -792,6 +782,8 @@ void elementwise_op_quantized(const ITensor *in1, const ITensor *in2, ITensor *o
 
 void elementwise_comp_quantized_signed(const ITensor *in1, const ITensor *in2, ITensor *out, const Window &window,
                                        uint8_t (*scalar_func)(const float &, const float &, UniformQuantizationInfo),
+                                       int (*broadcast_func)(int, int, int, const int8_t *, float32x4x4_t, uint8_t *, int32x4_t, float32x4_t,
+                                                             float32x4_t, float32x4_t, const bool),
                                        int (*neon_func)(int, int, int, const int8_t *, const int8_t *, uint8_t *,
                                                         int32x4_t, int32x4_t, float32x4_t, float32x4_t,
                                                         float32x4_t, float32x4_t))
@@ -804,13 +796,58 @@ void elementwise_comp_quantized_signed(const ITensor *in1, const ITensor *in2, I
     Window win = window;
     win.set(Window::DimX, Window::Dimension(0, 1, 1));
 
-    const int                     window_step_x  = 16;
-    const auto                    window_start_x = static_cast<int>(window.x().start());
-    const auto                    window_end_x   = static_cast<int>(window.x().end());
-    const UniformQuantizationInfo output_qinfo   = out->info()->quantization_info().uniform();
+    const int  window_step_x         = 16;
+    const auto window_start_x        = static_cast<int>(window.x().start());
+    const auto window_end_x          = static_cast<int>(window.x().end());
+    const bool is_broadcast_across_x = (input1_win.x().step() == 0) || (input2_win.x().step() == 0);
+
+    const UniformQuantizationInfo output_qinfo = out->info()->quantization_info().uniform();
 
     const float32x4_t voffseto   = vdupq_n_f32(output_qinfo.offset);
     const float32x4_t invvscaleo = vdupq_n_f32(1.f / output_qinfo.scale);
+
+    if(is_broadcast_across_x)
+    {
+        // Select the broadcast input on the X axis
+        const bool     is_broadcast_input_2 = input2_win.x().step() == 0;
+        Window         broadcast_win        = is_broadcast_input_2 ? input2_win : input1_win;
+        Window         non_broadcast_win    = !is_broadcast_input_2 ? input2_win : input1_win;
+        const ITensor *broadcast_tensor     = is_broadcast_input_2 ? in2 : in1;
+        const ITensor *non_broadcast_tensor = !is_broadcast_input_2 ? in2 : in1;
+
+        const UniformQuantizationInfo broadcast_qinfo     = broadcast_tensor->info()->quantization_info().uniform();
+        const UniformQuantizationInfo non_broadcast_qinfo = non_broadcast_tensor->info()->quantization_info().uniform();
+
+        const int32x4_t   voffset_non_broadcast = vdupq_n_s32(non_broadcast_qinfo.offset);
+        const float32x4_t vscale_non_broadcast  = vdupq_n_f32(non_broadcast_qinfo.scale);
+
+        // Clear X Dimension on execution window as we handle manually
+        non_broadcast_win.set(Window::DimX, Window::Dimension(0, 1, 1));
+
+        Iterator broadcast_input(broadcast_tensor, broadcast_win);
+        Iterator non_broadcast_input(non_broadcast_tensor, non_broadcast_win);
+        Iterator output(out, win);
+
+        execute_window_loop(win, [&](const Coordinates &)
+        {
+            const auto non_broadcast_input_ptr = reinterpret_cast<const int8_t *>(non_broadcast_input.ptr());
+            const auto output_ptr              = reinterpret_cast<uint8_t *>(output.ptr());
+
+            const int8_t        broadcast_value  = *reinterpret_cast<const int8_t *>(broadcast_input.ptr());
+            const float32x4x4_t broadcast_vector = vdequantize(vdupq_n_s8(broadcast_value), broadcast_qinfo);
+
+            int x = (*broadcast_func)(window_start_x, window_end_x, window_step_x, non_broadcast_input_ptr, broadcast_vector, output_ptr,
+                                      voffset_non_broadcast, vscale_non_broadcast, voffseto, invvscaleo, !is_broadcast_input_2);
+            for(; x < window_end_x; ++x)
+            {
+                const float afs   = dequantize_qasymm8_signed(*(non_broadcast_input_ptr + x), non_broadcast_qinfo);
+                const float bfs   = dequantize_qasymm8_signed(broadcast_value, broadcast_qinfo);
+                *(output_ptr + x) = (*scalar_func)(!is_broadcast_input_2 ? bfs : afs, !is_broadcast_input_2 ? afs : bfs, output_qinfo);
+            }
+        },
+        broadcast_input, non_broadcast_input, output);
+    }
+    else
     {
         const UniformQuantizationInfo input1_qinfo = in1->info()->quantization_info().uniform();
         const UniformQuantizationInfo input2_qinfo = in2->info()->quantization_info().uniform();
@@ -904,7 +941,7 @@ void elementwise_op_quantized_signed(const ITensor *in1, const ITensor *in2, ITe
             const auto output_ptr              = reinterpret_cast<int8_t *>(output.ptr());
 
             const int8_t        broadcast_value  = *reinterpret_cast<const int8_t *>(broadcast_input.ptr());
-            const float32x4x4_t broadcast_vector = dup_quantized(broadcast_value, broadcast_qinfo.offset, broadcast_qinfo.scale);
+            const float32x4x4_t broadcast_vector = vdequantize(vdupq_n_s8(broadcast_value), broadcast_qinfo);
 
             int x = (*broadcast_func)(window_start_x, window_end_x, window_step_x, non_broadcast_input_ptr, broadcast_vector, output_ptr,
                                       voffset_non_broadcast, vscale_non_broadcast, voffseto, invvscaleo, !is_broadcast_input_2);
@@ -1012,17 +1049,19 @@ void elementwise_comp_op_quantized(const ITensor *in1, const ITensor *in2, ITens
 template <ComparisonOperation op>
 void elementwise_comp_op_quantized_signed(const ITensor *in1, const ITensor *in2, ITensor *out, const Window &window)
 {
-    elementwise_comp_quantized_signed(in1, in2, out, window, &elementwise_comp_op_quantized_scalar<op>, &elementwise_comp_op_quantized_signed_loop<op>);
+    elementwise_comp_quantized_signed(in1, in2, out, window, &elementwise_comp_op_quantized_scalar<op>,
+                                      &elementwise_comp_op_quantized_signed_broadcast_loop<op>,
+                                      &elementwise_comp_op_quantized_signed_loop<op>);
 }
 
 std::function<void(const ITensor *, const ITensor *, ITensor *, const Window &)>
-configure_func(const ITensor *input1, const ITensor *input2, ITensor *output,
+configure_func(const ITensorInfo *input1, const ITensorInfo *input2, ITensorInfo *output,
                std::map<std::string, NEElementwiseOperationKernel::ElementwiseFunction *> map_function)
 {
     std::string function_to_call("op_");
-    function_to_call += string_from_data_type(input1->info()->data_type()) + "_";
-    function_to_call += string_from_data_type(input2->info()->data_type()) + "_";
-    function_to_call += string_from_data_type(output->info()->data_type());
+    function_to_call += string_from_data_type(input1->data_type()) + "_";
+    function_to_call += string_from_data_type(input2->data_type()) + "_";
+    function_to_call += string_from_data_type(output->data_type());
 
     auto it = map_function.find(function_to_call);
 
@@ -1039,7 +1078,7 @@ configure_func(const ITensor *input1, const ITensor *input2, ITensor *output,
 
 template <ArithmeticOperation op>
 std::function<void(const ITensor *, const ITensor *, ITensor *, const Window &)>
-configure_arithm_func(const ITensor *input1, const ITensor *input2, ITensor *output)
+configure_arithm_func(const ITensorInfo *input1, const ITensorInfo *input2, ITensorInfo *output)
 {
     static std::map<std::string, NEElementwiseOperationKernel::ElementwiseFunction *> map_function =
     {
@@ -1058,7 +1097,7 @@ configure_arithm_func(const ITensor *input1, const ITensor *input2, ITensor *out
 
 template <ComparisonOperation op>
 std::function<void(const ITensor *input1, const ITensor *input2, ITensor *output, const Window &window)>
-configure_comp_func(const ITensor *input1, const ITensor *input2, ITensor *output)
+configure_comp_func(const ITensorInfo *input1, const ITensorInfo *input2, ITensorInfo *output)
 {
     static std::map<std::string, NEElementwiseOperationKernel::ElementwiseFunction *> map_function =
     {
@@ -1101,41 +1140,38 @@ Status NEElementwiseOperationKernel::validate_arguments_common(const ITensorInfo
     return Status{};
 }
 
-void NEElementwiseOperationKernel::configure_common(const ITensor *input1, const ITensor *input2, ITensor *output)
+void NEElementwiseOperationKernel::configure_common(const ITensorInfo *input1, const ITensorInfo *input2, ITensorInfo *output)
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input1, input2, output);
 
     // Configure kernel window
-    const std::pair<TensorShape, ValidRegion> broadcast_pair = ITensorInfo::broadcast_shape_and_valid_region(*input1->info(), *input2->info());
+    const std::pair<TensorShape, ValidRegion> broadcast_pair = ITensorInfo::broadcast_shape_and_valid_region(*input1, *input2);
     const TensorShape &out_shape    = broadcast_pair.first;
     const ValidRegion &valid_region = broadcast_pair.second;
 
     // Auto initialize output if not initialized
-    auto_init_if_empty(*output->info(), out_shape, 1, input1->info()->data_type());
+    auto_init_if_empty(*output, out_shape, 1, input1->data_type());
 
     Window win = calculate_max_window(valid_region);
-
-    _input1 = input1;
-    _input2 = input2;
-    _output = output;
 
     INEKernel::configure(win);
 }
 
-void NEElementwiseOperationKernel::run(const Window &window, const ThreadInfo &info)
+void NEElementwiseOperationKernel::run_op(ITensorPack &tensors, const Window &window, const ThreadInfo &info)
 {
     ARM_COMPUTE_UNUSED(info, window);
     ARM_COMPUTE_ERROR_ON_UNCONFIGURED_KERNEL(this);
     ARM_COMPUTE_ERROR_ON_INVALID_SUBWINDOW(INEKernel::window(), window);
     ARM_COMPUTE_ERROR_ON(_function == nullptr);
-    _function(_input1, _input2, _output, window);
+    _function(tensors.get_const_tensor(TensorType::ACL_SRC_0),
+              tensors.get_const_tensor(TensorType::ACL_SRC_1),
+              tensors.get_tensor(TensorType::ACL_DST), window);
 }
 
 /** Arithmetic operators (min, max, squared_diff) */
-
-void NEArithmeticOperationKernel::configure(ArithmeticOperation op, const ITensor *input1, const ITensor *input2, ITensor *output)
+void NEArithmeticOperationKernel::configure(ArithmeticOperation op, const ITensorInfo *input1, const ITensorInfo *input2, ITensorInfo *output)
 {
-    ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(*input1->info(), *input2->info(), *output->info()));
+    ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(*input1, *input2, *output));
     configure_common(input1, input2, output);
     switch(op)
     {
@@ -1176,9 +1212,9 @@ Status NEArithmeticOperationKernel::validate(ArithmeticOperation op, const ITens
 
 /** The division operator */
 
-void NEDivisionOperationKernel::configure(const ITensor *input1, const ITensor *input2, ITensor *output)
+void NEDivisionOperationKernel::configure(const ITensorInfo *input1, const ITensorInfo *input2, ITensorInfo *output)
 {
-    ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(*input1->info(), *input2->info(), *output->info()));
+    ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(*input1, *input2, *output));
     configure_common(input1, input2, output);
     _function = configure_arithm_func<ArithmeticOperation::DIV>(input1, input2, output);
 }
@@ -1197,9 +1233,9 @@ Status NEDivisionOperationKernel::validate(const ITensorInfo *input1, const ITen
 }
 
 /** The power operator */
-void NEPowerOperationKernel::configure(const ITensor *input1, const ITensor *input2, ITensor *output)
+void NEPowerOperationKernel::configure(const ITensorInfo *input1, const ITensorInfo *input2, ITensorInfo *output)
 {
-    ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(*input1->info(), *input2->info(), *output->info()));
+    ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(*input1, *input2, *output));
     configure_common(input1, input2, output);
     _function = configure_arithm_func<ArithmeticOperation::POWER>(input1, input2, output);
 }
@@ -1218,10 +1254,9 @@ Status NEPowerOperationKernel::validate(const ITensorInfo *input1, const ITensor
 }
 
 /** Comparison operators (equal, not equal, less than, greater than, less than or equal, greater than or equal) */
-
-void NEComparisonOperationKernel::configure(ComparisonOperation op, const ITensor *input1, const ITensor *input2, ITensor *output)
+void NEComparisonOperationKernel::configure(ComparisonOperation op, const ITensorInfo *input1, const ITensorInfo *input2, ITensorInfo *output)
 {
-    ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(*input1->info(), *input2->info(), *output->info()));
+    ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(*input1, *input2, *output));
     configure_common(input1, input2, output);
     switch(op)
     {

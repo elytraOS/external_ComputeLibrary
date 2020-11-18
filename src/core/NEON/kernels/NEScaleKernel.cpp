@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020 ARM Limited.
+ * Copyright (c) 2016-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -25,37 +25,31 @@
 
 #include "arm_compute/core/AccessWindowStatic.h"
 #include "arm_compute/core/CPP/Validate.h"
-#include "arm_compute/core/Coordinates.h"
-#include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
-#include "arm_compute/core/ITensor.h"
 #include "arm_compute/core/NEON/wrapper/wrapper.h"
-#include "arm_compute/core/TensorInfo.h"
-#include "arm_compute/core/Utils.h"
-#include "arm_compute/core/Validate.h"
 #include "arm_compute/core/Window.h"
+#include "arm_compute/core/utils/misc/Rounding.h"
 #include "arm_compute/core/utils/misc/Utility.h"
 
+#include "src/core/utils/ScaleUtils.h"
+
 #include <arm_neon.h>
-#include <cstddef>
-#include <cstdint>
 
 namespace arm_compute
 {
 namespace
 {
 Status validate_arguments(const ITensorInfo *input, const ITensorInfo *dx, const ITensorInfo *dy,
-                          const ITensorInfo *offsets, ITensorInfo *output, InterpolationPolicy policy,
-                          BorderMode border_mode, PixelValue constant_border_value, SamplingPolicy sampling_policy, bool use_padding, bool align_corners)
+                          const ITensorInfo *offsets, ITensorInfo *output, const ScaleKernelInfo &info)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_CPU_F16_UNSUPPORTED(input);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::U8, DataType::S16, DataType::F16, DataType::F32, DataType::QASYMM8);
+    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::U8, DataType::S16, DataType::F16, DataType::F32, DataType::QASYMM8, DataType::QASYMM8_SIGNED);
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(output);
     ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(input, output);
     ARM_COMPUTE_RETURN_ERROR_ON(output == input);
-    ARM_COMPUTE_RETURN_ERROR_ON(sampling_policy != SamplingPolicy::CENTER && sampling_policy != SamplingPolicy::TOP_LEFT);
-    ARM_COMPUTE_RETURN_ERROR_ON(!use_padding && border_mode != BorderMode::CONSTANT);
-    ARM_COMPUTE_UNUSED(constant_border_value);
+    ARM_COMPUTE_RETURN_ERROR_ON(info.sampling_policy != SamplingPolicy::CENTER && info.sampling_policy != SamplingPolicy::TOP_LEFT);
+    ARM_COMPUTE_RETURN_ERROR_ON(!info.use_padding && info.border_mode != BorderMode::CONSTANT);
+    ARM_COMPUTE_UNUSED(info.constant_border_value);
 
     const DataLayout data_layout   = input->data_layout();
     const auto       width_index   = get_data_layout_dimension_index(data_layout, DataLayoutDimension::WIDTH);
@@ -65,31 +59,21 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *dx, const
     ARM_COMPUTE_RETURN_ERROR_ON(output_width == 0);
     ARM_COMPUTE_RETURN_ERROR_ON(output_height == 0);
 
-    if(policy == InterpolationPolicy::NEAREST_NEIGHBOR)
+    if(info.interpolation_policy == InterpolationPolicy::NEAREST_NEIGHBOR)
     {
         ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(offsets, 1, DataType::S32);
     }
 
-    if(policy == InterpolationPolicy::BILINEAR)
+    if(info.interpolation_policy == InterpolationPolicy::BILINEAR)
     {
         ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(offsets, 1, DataType::S32);
         ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(dx, 1, DataType::F32);
         ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(dy, 1, DataType::F32);
-
-        if(align_corners)
-        {
-            // For bilinear method with aligned corners, the resize ratio will
-            // be calculated by (input_size - 1)/(output_size - 1). Belows are
-            // checking possible overflows.
-            const auto input_width  = input->dimension(width_index);
-            const auto input_height = input->dimension(height_index);
-
-            ARM_COMPUTE_RETURN_ERROR_ON(input_width == 0 || input_height == 0);
-            ARM_COMPUTE_RETURN_ERROR_ON((output_width - 1 == 0) || (output_height - 1 == 0));
-        }
     }
 
-    if(policy == InterpolationPolicy::AREA)
+    ARM_COMPUTE_RETURN_ERROR_ON(info.align_corners && !arm_compute::scale_utils::is_align_corners_allowed_sampling_policy(info.sampling_policy));
+
+    if(info.interpolation_policy == InterpolationPolicy::AREA)
     {
         ARM_COMPUTE_RETURN_ERROR_ON(data_layout != DataLayout::NCHW);
         ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::U8);
@@ -99,7 +83,7 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *dx, const
 }
 
 std::pair<Status, Window> validate_and_configure_window_nchw(ITensorInfo *input, ITensorInfo *dx, ITensorInfo *dy, ITensorInfo *offsets, ITensorInfo *output,
-                                                             InterpolationPolicy policy, bool border_undefined, SamplingPolicy sampling_policy, BorderSize border_size)
+                                                             const ScaleKernelInfo &info, BorderSize border_size)
 {
     bool   window_changed{ false };
     Window win{};
@@ -131,30 +115,28 @@ std::pair<Status, Window> validate_and_configure_window_nchw(ITensorInfo *input,
     AccessWindowHorizontal output_access(output, 0, num_elems_processed_per_iteration);
     window_changed = window_changed || update_window_and_padding(win, input_access, output_access);
     output_access.set_valid_region(win, calculate_valid_region_scale(*input, output->tensor_shape(),
-                                                                     policy, sampling_policy, border_undefined));
+                                                                     info.interpolation_policy, info.sampling_policy, info.border_mode == BorderMode::UNDEFINED));
 
     Status err = (window_changed) ? ARM_COMPUTE_CREATE_ERROR(ErrorCode::RUNTIME_ERROR, "Insufficient Padding!") : Status{};
     return std::make_pair(err, win);
 }
 
-std::pair<Status, Window> validate_and_configure_window_nhwc(ITensorInfo *input, ITensorInfo *output,
-                                                             InterpolationPolicy policy, bool border_undefined,
-                                                             SamplingPolicy sampling_policy, BorderSize border_size, bool use_padding)
+std::pair<Status, Window> validate_and_configure_window_nhwc(ITensorInfo *input, ITensorInfo *output, const ScaleKernelInfo &info, BorderSize border_size)
 {
     bool   window_changed{ false };
     Window win{};
 
-    const unsigned int num_elems_processed_per_iteration = (use_padding && policy == InterpolationPolicy::NEAREST_NEIGHBOR) ? 16 / input->element_size() : 1;
+    const unsigned int num_elems_processed_per_iteration = (info.use_padding && info.interpolation_policy == InterpolationPolicy::NEAREST_NEIGHBOR) ? 16 / input->element_size() : 1;
 
     // Configure kernel window
     win = calculate_max_window(*output, Steps(num_elems_processed_per_iteration));
 
-    if(use_padding)
+    if(info.use_padding)
     {
         AccessWindowStatic     input_access(input, 0, -border_size.top, ceil_to_multiple(input->tensor_shape()[0], num_elems_processed_per_iteration), input->tensor_shape()[1]);
         AccessWindowHorizontal output_access(output, 0, num_elems_processed_per_iteration);
         window_changed = update_window_and_padding(win, input_access, output_access);
-        output->set_valid_region(calculate_valid_region_scale(*input, output->tensor_shape(), policy, sampling_policy, border_undefined));
+        output->set_valid_region(calculate_valid_region_scale(*input, output->tensor_shape(), info.interpolation_policy, info.sampling_policy, info.border_mode == BorderMode::UNDEFINED));
     }
 
     Status err = (window_changed) ? ARM_COMPUTE_CREATE_ERROR(ErrorCode::RUNTIME_ERROR, "Insufficient Padding!") : Status{};
@@ -162,20 +144,20 @@ std::pair<Status, Window> validate_and_configure_window_nhwc(ITensorInfo *input,
 }
 
 std::pair<Status, Window> validate_and_configure_window(ITensorInfo *input, ITensorInfo *dx, ITensorInfo *dy, ITensorInfo *offsets, ITensorInfo *output,
-                                                        InterpolationPolicy policy, bool border_undefined, SamplingPolicy sampling_policy, BorderSize border_size, bool use_padding)
+                                                        const ScaleKernelInfo &info, BorderSize border_size)
 {
     std::pair<Status, Window> win_config;
     switch(input->data_layout())
     {
         case DataLayout::NCHW:
-            if(!use_padding)
+            if(!info.use_padding)
             {
                 return std::make_pair(ARM_COMPUTE_CREATE_ERROR(ErrorCode::RUNTIME_ERROR, "Padding required for NCHW"), Window{});
             }
-            win_config = validate_and_configure_window_nchw(input, dx, dy, offsets, output, policy, border_undefined, sampling_policy, border_size);
+            win_config = validate_and_configure_window_nchw(input, dx, dy, offsets, output, info, border_size);
             break;
         case DataLayout::NHWC:
-            win_config = validate_and_configure_window_nhwc(input, output, policy, border_undefined, sampling_policy, border_size, use_padding);
+            win_config = validate_and_configure_window_nhwc(input, output, info, border_size);
             break;
         default:
             win_config = std::make_pair(ARM_COMPUTE_CREATE_ERROR(ErrorCode::RUNTIME_ERROR, "Unsupported data layout!"), Window{});
@@ -186,7 +168,7 @@ std::pair<Status, Window> validate_and_configure_window(ITensorInfo *input, ITen
 
 template <typename T>
 inline void scale_nearest_nhwc_core(const ITensor *input, const ITensor *offsets, ITensor *output,
-                                    float hr, Window window, const Window &win_in, size_t stride_w, size_t stride_h, size_t stride_c, float sampling_offset)
+                                    float hr, Window window, const Window &win_in, size_t stride_w, size_t stride_h, size_t stride_c, float sampling_offset, bool align_corners)
 {
     const int  window_step_x  = 16 / sizeof(T);
     const auto window_start_x = static_cast<int32_t>(window.x().start());
@@ -202,7 +184,7 @@ inline void scale_nearest_nhwc_core(const ITensor *input, const ITensor *offsets
     execute_window_loop(window, [&](const Coordinates & id)
     {
         const int32_t offset     = *reinterpret_cast<const int32_t *>(offsets->ptr_to_element(Coordinates(id.y(), id.z())));
-        const int     in_yi      = std::floor((id.z() + sampling_offset) * hr);
+        const auto    in_yi      = static_cast<int>(align_corners ? arm_compute::utils::rounding::round_half_away_from_zero((id.z() + sampling_offset) * hr) : std::floor((id.z() + sampling_offset) * hr));
         const int     offset_row = in_yi * stride_h;
         int32_t       x          = window_start_x;
         for(; x < window_end_x - window_step_x; x += window_step_x)
@@ -251,9 +233,8 @@ inline void scale_bilinear_nhwc_core(const ITensor *input, const ITensor *offset
 
     int border_size = (border_mode == BorderMode::UNDEFINED) ? 0 : 1;
 
-    const bool                    is_quantized = (input->info()->data_type() == DataType::QASYMM8);
-    const UniformQuantizationInfo iq_info      = input->info()->quantization_info().uniform();
-    const UniformQuantizationInfo oq_info      = output->info()->quantization_info().uniform();
+    const UniformQuantizationInfo iq_info = input->info()->quantization_info().uniform();
+    const UniformQuantizationInfo oq_info = output->info()->quantization_info().uniform();
 
     execute_window_loop(window, [&](const Coordinates & id)
     {
@@ -309,13 +290,21 @@ inline void scale_bilinear_nhwc_core(const ITensor *input, const ITensor *offset
 
             T res = 0;
             //dequantize quantized input
-            if(is_quantized)
+            if(input->info()->data_type() == DataType::QASYMM8)
             {
                 float inp00 = dequantize_qasymm8(a00, iq_info);
                 float inp01 = dequantize_qasymm8(a01, iq_info);
                 float inp10 = dequantize_qasymm8(a10, iq_info);
                 float inp11 = dequantize_qasymm8(a11, iq_info);
                 res         = static_cast<T>(quantize_qasymm8((inp00 * w1 + inp01 * w2 + inp10 * w3 + inp11 * w4), oq_info));
+            }
+            else if(input->info()->data_type() == DataType::QASYMM8_SIGNED)
+            {
+                float inp00 = dequantize_qasymm8_signed(a00, iq_info);
+                float inp01 = dequantize_qasymm8_signed(a01, iq_info);
+                float inp10 = dequantize_qasymm8_signed(a10, iq_info);
+                float inp11 = dequantize_qasymm8_signed(a11, iq_info);
+                res         = static_cast<T>(quantize_qasymm8_signed((inp00 * w1 + inp01 * w2 + inp10 * w3 + inp11 * w4), oq_info));
             }
             else
             {
@@ -354,8 +343,7 @@ BorderSize NEScaleKernel::border_size() const
 }
 
 void NEScaleKernel::configure(const ITensor *input, const ITensor *dx, const ITensor *dy, const ITensor *offsets,
-                              ITensor *output, InterpolationPolicy policy, BorderMode border_mode, PixelValue constant_border_value, SamplingPolicy sampling_policy,
-                              bool use_padding, bool align_corners)
+                              ITensor *output, const ScaleKernelInfo &info)
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
     // Perform validation step
@@ -364,7 +352,7 @@ void NEScaleKernel::configure(const ITensor *input, const ITensor *dx, const ITe
                                                   dy != nullptr ? dy->info() : nullptr,
                                                   offsets != nullptr ? offsets->info() : nullptr,
                                                   output->info(),
-                                                  policy, border_mode, constant_border_value, sampling_policy, use_padding, align_corners));
+                                                  info));
 
     // Get data layout and width/height indices
     const DataLayout data_layout = input->info()->data_layout();
@@ -376,38 +364,33 @@ void NEScaleKernel::configure(const ITensor *input, const ITensor *dx, const ITe
     _offsets               = offsets;
     _dx                    = dx;
     _dy                    = dy;
-    _policy                = policy;
+    _policy                = info.interpolation_policy;
     _border_size           = BorderSize(1);
-    _border_mode           = border_mode;
-    _constant_border_value = constant_border_value;
-    _use_padding           = use_padding;
-    _align_corners         = _policy == InterpolationPolicy::BILINEAR
-                             && sampling_policy == SamplingPolicy::TOP_LEFT
-                             && align_corners;
+    _border_mode           = info.border_mode;
+    _constant_border_value = info.constant_border_value;
+    _use_padding           = info.use_padding;
+    _align_corners         = info.align_corners;
 
-    if(sampling_policy == SamplingPolicy::CENTER)
+    if(info.sampling_policy == SamplingPolicy::CENTER)
     {
         _sampling_offset = 0.5f;
     }
 
     // Compute the ratio between source width/height and destination width/height
-    const auto wr = arm_compute::calculate_resize_ratio(input->info()->dimension(idx_width), output->info()->dimension(idx_width), _align_corners);
-    const auto hr = arm_compute::calculate_resize_ratio(input->info()->dimension(idx_height), output->info()->dimension(idx_height), _align_corners);
+    const auto wr = arm_compute::scale_utils::calculate_resize_ratio(input->info()->dimension(idx_width), output->info()->dimension(idx_width), _align_corners);
+    const auto hr = arm_compute::scale_utils::calculate_resize_ratio(input->info()->dimension(idx_height), output->info()->dimension(idx_height), _align_corners);
 
     // Add constant border only on top in case of NHWC layout
     if(data_layout == DataLayout::NHWC)
     {
-        _border_size = (border_mode != BorderMode::REPLICATE && policy == InterpolationPolicy::BILINEAR && use_padding) ? BorderSize(1, 0, 0, 0) : BorderSize(0);
+        _border_size = (info.border_mode != BorderMode::REPLICATE && info.interpolation_policy == InterpolationPolicy::BILINEAR && info.use_padding) ? BorderSize(1, 0, 0, 0) : BorderSize(0);
     }
 
     // Area interpolation behaves as Nearest Neighbour in case of up-sampling
-    if(policy == InterpolationPolicy::AREA && wr <= 1.f && hr <= 1.f)
-    {
-        policy = InterpolationPolicy::NEAREST_NEIGHBOR;
-    }
+    const auto policy_to_use = (info.interpolation_policy == InterpolationPolicy::AREA && wr <= 1.f && hr <= 1.f) ? InterpolationPolicy::NEAREST_NEIGHBOR : _policy;
 
     // Select interpolation function
-    switch(policy)
+    switch(policy_to_use)
     {
         case InterpolationPolicy::NEAREST_NEIGHBOR:
         {
@@ -434,7 +417,7 @@ void NEScaleKernel::configure(const ITensor *input, const ITensor *dx, const ITe
                                                                          dy != nullptr ? dy->info() : nullptr,
                                                                          offsets != nullptr ? offsets->info() : nullptr,
                                                                          output->info(),
-                                                                         policy, border_mode == BorderMode::UNDEFINED, sampling_policy, border_size(), use_padding);
+                                                                         info, border_size());
 
     ARM_COMPUTE_ERROR_THROW_ON(win_config.first);
     INEKernel::configure(win_config.second);
@@ -445,7 +428,7 @@ void NEScaleKernel::scale_nearest_nchw(const Window &window)
     const size_t input_stride = _input->info()->strides_in_bytes()[1];
 
     // Compute the ratio between source height and destination height
-    const auto hr = arm_compute::calculate_resize_ratio(_input->info()->dimension(1), _output->info()->dimension(1), _align_corners);
+    const auto hr = arm_compute::scale_utils::calculate_resize_ratio(_input->info()->dimension(1), _output->info()->dimension(1), _align_corners);
 
     // Don't increment in X and Y direction for the input tensor
     // A pointer to the start of this plane is needed as base for the precomputed offsets
@@ -469,6 +452,42 @@ void NEScaleKernel::scale_nearest_nchw(const Window &window)
 
     switch(_input->info()->data_type())
     {
+        case DataType::QASYMM8_SIGNED:
+        {
+            int8x16_t tmp = vdupq_n_s8(0);
+
+            execute_window_loop(window, [&](const Coordinates & id)
+            {
+                const auto           offsets_ptr = reinterpret_cast<const int32_t *>(offsets.ptr());
+                const uint8_t *const in_ptr      = in.ptr();
+
+                const auto in_yi         = static_cast<int>(_align_corners ? arm_compute::utils::rounding::round_half_away_from_zero((id.y() + _sampling_offset) * hr) : std::floor((id.y() + _sampling_offset) * hr));
+                const int  in_yi_clamped = std::min(static_cast<int>(_input->info()->dimension(1)), std::max(in_yi, -1));
+                ARM_COMPUTE_ERROR_ON(in_yi_clamped < -1 || in_yi_clamped > static_cast<int>(_input->info()->dimension(1)));
+                const int offset_row = in_yi_clamped * input_stride;
+
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[0] + offset_row], tmp, 0);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[1] + offset_row], tmp, 1);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[2] + offset_row], tmp, 2);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[3] + offset_row], tmp, 3);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[4] + offset_row], tmp, 4);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[5] + offset_row], tmp, 5);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[6] + offset_row], tmp, 6);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[7] + offset_row], tmp, 7);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[8] + offset_row], tmp, 8);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[9] + offset_row], tmp, 9);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[10] + offset_row], tmp, 10);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[11] + offset_row], tmp, 11);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[12] + offset_row], tmp, 12);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[13] + offset_row], tmp, 13);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[14] + offset_row], tmp, 14);
+                tmp = vsetq_lane_s8(in_ptr[offsets_ptr[15] + offset_row], tmp, 15);
+
+                vst1q_s8(reinterpret_cast<int8_t *>(out.ptr()), tmp);
+            },
+            in, offsets, out);
+            break;
+        }
         case DataType::QASYMM8:
         case DataType::U8:
         {
@@ -479,8 +498,8 @@ void NEScaleKernel::scale_nearest_nchw(const Window &window)
                 const auto           offsets_ptr = reinterpret_cast<const int32_t *>(offsets.ptr());
                 const uint8_t *const in_ptr      = in.ptr();
 
-                const int in_yi         = std::floor((id.y() + _sampling_offset) * hr);
-                const int in_yi_clamped = std::min(static_cast<int>(_input->info()->dimension(1)), std::max(in_yi, -1));
+                const auto in_yi         = static_cast<int>(_align_corners ? arm_compute::utils::rounding::round_half_away_from_zero((id.y() + _sampling_offset) * hr) : std::floor((id.y() + _sampling_offset) * hr));
+                const int  in_yi_clamped = std::min(static_cast<int>(_input->info()->dimension(1)), std::max(in_yi, -1));
                 ARM_COMPUTE_ERROR_ON(in_yi_clamped < -1 || in_yi_clamped > static_cast<int>(_input->info()->dimension(1)));
                 const int offset_row = in_yi_clamped * input_stride;
 
@@ -519,9 +538,8 @@ void NEScaleKernel::scale_nearest_nchw(const Window &window)
             execute_window_loop(window, [&](const Coordinates & id)
             {
                 const auto offsets_ptr = reinterpret_cast<const int32_t *>(offsets.ptr());
-
-                const int in_yi      = std::floor((id.y() + _sampling_offset) * hr);
-                const int offset_row = in_yi * input_stride;
+                const auto in_yi       = static_cast<int>(_align_corners ? arm_compute::utils::rounding::round_half_away_from_zero((id.y() + _sampling_offset) * hr) : std::floor((id.y() + _sampling_offset) * hr));
+                const int  offset_row  = in_yi * input_stride;
 
                 tmp.val[0] = vsetq_lane_s16(*reinterpret_cast<const int16_t *>(in.ptr() + offsets_ptr[0] + offset_row), tmp.val[0], 0);
                 tmp.val[0] = vsetq_lane_s16(*reinterpret_cast<const int16_t *>(in.ptr() + offsets_ptr[2] + offset_row), tmp.val[0], 1);
@@ -560,9 +578,8 @@ void NEScaleKernel::scale_nearest_nchw(const Window &window)
             execute_window_loop(window, [&](const Coordinates & id)
             {
                 const auto offsets_ptr = reinterpret_cast<const int32_t *>(offsets.ptr());
-
-                const int in_yi      = std::floor((id.y() + _sampling_offset) * hr);
-                const int offset_row = in_yi * input_stride;
+                const auto in_yi       = static_cast<int>(_align_corners ? arm_compute::utils::rounding::round_half_away_from_zero((id.y() + _sampling_offset) * hr) : std::floor((id.y() + _sampling_offset) * hr));
+                const int  offset_row  = in_yi * input_stride;
 
                 tmp.val[0] = vsetq_lane_f16(*reinterpret_cast<const __fp16 *>(in.ptr() + offsets_ptr[0] + offset_row), tmp.val[0], 0);
                 tmp.val[0] = vsetq_lane_f16(*reinterpret_cast<const __fp16 *>(in.ptr() + offsets_ptr[2] + offset_row), tmp.val[0], 1);
@@ -603,9 +620,8 @@ void NEScaleKernel::scale_nearest_nchw(const Window &window)
             execute_window_loop(window, [&](const Coordinates & id)
             {
                 const auto offsets_ptr = reinterpret_cast<const int32_t *>(offsets.ptr());
-
-                const int in_yi      = std::floor((id.y() + _sampling_offset) * hr);
-                const int offset_row = in_yi * input_stride;
+                const auto in_yi       = static_cast<int>(_align_corners ? arm_compute::utils::rounding::round_half_away_from_zero((id.y() + _sampling_offset) * hr) : std::floor((id.y() + _sampling_offset) * hr));
+                const int  offset_row  = in_yi * input_stride;
 
                 tmp.val[0] = vsetq_lane_f32(*reinterpret_cast<const float *>(in.ptr() + offsets_ptr[0] + offset_row), tmp.val[0], 0);
                 tmp.val[0] = vsetq_lane_f32(*reinterpret_cast<const float *>(in.ptr() + offsets_ptr[4] + offset_row), tmp.val[0], 1);
@@ -639,10 +655,10 @@ void NEScaleKernel::scale_nearest_nchw(const Window &window)
 
 void NEScaleKernel::scale_bilinear_nchw(const Window &window)
 {
-    ARM_COMPUTE_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(_input, 1, DataType::U8, DataType::QASYMM8, DataType::S16, DataType::F16, DataType::F32);
+    ARM_COMPUTE_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(_input, 1, DataType::U8, DataType::QASYMM8, DataType::QASYMM8_SIGNED, DataType::S16, DataType::F16, DataType::F32);
 
     // Compute the ratio between source height and destination height
-    const auto hr = arm_compute::calculate_resize_ratio(_input->info()->dimension(1), _output->info()->dimension(1), _align_corners);
+    const auto hr = arm_compute::scale_utils::calculate_resize_ratio(_input->info()->dimension(1), _output->info()->dimension(1), _align_corners);
 
     // Don't increment in X and Y direction for the input tensor
     // A pointer to the start of this plane is needed as base for the precomputed offsets
@@ -669,13 +685,89 @@ void NEScaleKernel::scale_bilinear_nchw(const Window &window)
     const size_t in_stide_in_bytes = _input->info()->strides_in_bytes()[1];
     const size_t in_stride         = in_stide_in_bytes / _input->info()->element_size();
 
-    const bool                    is_quantized = (_input->info()->data_type() == DataType::QASYMM8);
-    const UniformQuantizationInfo iq_info      = _input->info()->quantization_info().uniform();
-    const UniformQuantizationInfo oq_info      = _output->info()->quantization_info().uniform();
+    const UniformQuantizationInfo iq_info = _input->info()->quantization_info().uniform();
+    const UniformQuantizationInfo oq_info = _output->info()->quantization_info().uniform();
 
     switch(_input->info()->data_type())
     {
+        case DataType::QASYMM8_SIGNED:
+        {
+            execute_window_loop(window, [&](const Coordinates & id)
+            {
+                const auto offsets_ptr = reinterpret_cast<const int32_t *>(offsets.ptr());
+                const auto dx_ptr      = reinterpret_cast<const float *>(dx.ptr());
+                const auto dy_ptr      = reinterpret_cast<const float *>(dy.ptr());
+                const auto in_ptr      = reinterpret_cast<const int8_t *>(in.ptr());
+
+                const int in_yi      = std::floor((id.y() + _sampling_offset) * hr - _sampling_offset);
+                const int offset_row = in_yi * in_stide_in_bytes;
+
+                int8x8_t tmp0 = vdup_n_s8(0);
+
+                tmp0 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[0] + offset_row], in_stride, dx_ptr[0], dy_ptr[0], iq_info, oq_info), tmp0, 0);
+                tmp0 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[1] + offset_row], in_stride, dx_ptr[1], dy_ptr[1], iq_info, oq_info), tmp0, 1);
+                tmp0 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[2] + offset_row], in_stride, dx_ptr[2], dy_ptr[2], iq_info, oq_info), tmp0, 2);
+                tmp0 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[3] + offset_row], in_stride, dx_ptr[3], dy_ptr[3], iq_info, oq_info), tmp0, 3);
+                tmp0 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[4] + offset_row], in_stride, dx_ptr[4], dy_ptr[4], iq_info, oq_info), tmp0, 4);
+                tmp0 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[5] + offset_row], in_stride, dx_ptr[5], dy_ptr[5], iq_info, oq_info), tmp0, 5);
+                tmp0 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[6] + offset_row], in_stride, dx_ptr[6], dy_ptr[6], iq_info, oq_info), tmp0, 6);
+                tmp0 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[7] + offset_row], in_stride, dx_ptr[7], dy_ptr[7], iq_info, oq_info), tmp0, 7);
+
+                int8x8_t tmp1 = vdup_n_s8(0);
+
+                tmp1 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[8] + offset_row], in_stride, dx_ptr[8], dy_ptr[8], iq_info, oq_info), tmp1, 0);
+                tmp1 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[9] + offset_row], in_stride, dx_ptr[9], dy_ptr[9], iq_info, oq_info), tmp1, 1);
+                tmp1 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[10] + offset_row], in_stride, dx_ptr[10], dy_ptr[10], iq_info, oq_info), tmp1, 2);
+                tmp1 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[11] + offset_row], in_stride, dx_ptr[11], dy_ptr[11], iq_info, oq_info), tmp1, 3);
+                tmp1 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[12] + offset_row], in_stride, dx_ptr[12], dy_ptr[12], iq_info, oq_info), tmp1, 4);
+                tmp1 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[13] + offset_row], in_stride, dx_ptr[13], dy_ptr[13], iq_info, oq_info), tmp1, 5);
+                tmp1 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[14] + offset_row], in_stride, dx_ptr[14], dy_ptr[14], iq_info, oq_info), tmp1, 6);
+                tmp1 = vset_lane_s8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[15] + offset_row], in_stride, dx_ptr[15], dy_ptr[15], iq_info, oq_info), tmp1, 7);
+
+                vst1q_s8(reinterpret_cast<int8_t *>(out.ptr()), vcombine_s8(tmp0, tmp1));
+            },
+            in, offsets, dx, dy, out);
+            break;
+        }
         case DataType::QASYMM8:
+        {
+            execute_window_loop(window, [&](const Coordinates & id)
+            {
+                const auto offsets_ptr = reinterpret_cast<const int32_t *>(offsets.ptr());
+                const auto dx_ptr      = reinterpret_cast<const float *>(dx.ptr());
+                const auto dy_ptr      = reinterpret_cast<const float *>(dy.ptr());
+                const auto in_ptr      = reinterpret_cast<const uint8_t *>(in.ptr());
+
+                const int in_yi      = std::floor((id.y() + _sampling_offset) * hr - _sampling_offset);
+                const int offset_row = in_yi * in_stide_in_bytes;
+
+                uint8x8_t tmp0 = vdup_n_u8(0);
+
+                tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[0] + offset_row], in_stride, dx_ptr[0], dy_ptr[0], iq_info, oq_info), tmp0, 0);
+                tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[1] + offset_row], in_stride, dx_ptr[1], dy_ptr[1], iq_info, oq_info), tmp0, 1);
+                tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[2] + offset_row], in_stride, dx_ptr[2], dy_ptr[2], iq_info, oq_info), tmp0, 2);
+                tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[3] + offset_row], in_stride, dx_ptr[3], dy_ptr[3], iq_info, oq_info), tmp0, 3);
+                tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[4] + offset_row], in_stride, dx_ptr[4], dy_ptr[4], iq_info, oq_info), tmp0, 4);
+                tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[5] + offset_row], in_stride, dx_ptr[5], dy_ptr[5], iq_info, oq_info), tmp0, 5);
+                tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[6] + offset_row], in_stride, dx_ptr[6], dy_ptr[6], iq_info, oq_info), tmp0, 6);
+                tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[7] + offset_row], in_stride, dx_ptr[7], dy_ptr[7], iq_info, oq_info), tmp0, 7);
+
+                uint8x8_t tmp1 = vdup_n_u8(0);
+
+                tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[8] + offset_row], in_stride, dx_ptr[8], dy_ptr[8], iq_info, oq_info), tmp1, 0);
+                tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[9] + offset_row], in_stride, dx_ptr[9], dy_ptr[9], iq_info, oq_info), tmp1, 1);
+                tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[10] + offset_row], in_stride, dx_ptr[10], dy_ptr[10], iq_info, oq_info), tmp1, 2);
+                tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[11] + offset_row], in_stride, dx_ptr[11], dy_ptr[11], iq_info, oq_info), tmp1, 3);
+                tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[12] + offset_row], in_stride, dx_ptr[12], dy_ptr[12], iq_info, oq_info), tmp1, 4);
+                tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[13] + offset_row], in_stride, dx_ptr[13], dy_ptr[13], iq_info, oq_info), tmp1, 5);
+                tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[14] + offset_row], in_stride, dx_ptr[14], dy_ptr[14], iq_info, oq_info), tmp1, 6);
+                tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[15] + offset_row], in_stride, dx_ptr[15], dy_ptr[15], iq_info, oq_info), tmp1, 7);
+
+                vst1q_u8(out.ptr(), vcombine_u8(tmp0, tmp1));
+            },
+            in, offsets, dx, dy, out);
+            break;
+        }
         case DataType::U8:
         {
             execute_window_loop(window, [&](const Coordinates & id)
@@ -689,51 +781,27 @@ void NEScaleKernel::scale_bilinear_nchw(const Window &window)
                 const int offset_row = in_yi * in_stide_in_bytes;
 
                 uint8x8_t tmp0 = vdup_n_u8(0);
-                if(is_quantized)
-                {
-                    tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[0] + offset_row], in_stride, dx_ptr[0], dy_ptr[0], iq_info, oq_info), tmp0, 0);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[1] + offset_row], in_stride, dx_ptr[1], dy_ptr[1], iq_info, oq_info), tmp0, 1);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[2] + offset_row], in_stride, dx_ptr[2], dy_ptr[2], iq_info, oq_info), tmp0, 2);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[3] + offset_row], in_stride, dx_ptr[3], dy_ptr[3], iq_info, oq_info), tmp0, 3);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[4] + offset_row], in_stride, dx_ptr[4], dy_ptr[4], iq_info, oq_info), tmp0, 4);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[5] + offset_row], in_stride, dx_ptr[5], dy_ptr[5], iq_info, oq_info), tmp0, 5);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[6] + offset_row], in_stride, dx_ptr[6], dy_ptr[6], iq_info, oq_info), tmp0, 6);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[7] + offset_row], in_stride, dx_ptr[7], dy_ptr[7], iq_info, oq_info), tmp0, 7);
-                }
-                else
-                {
-                    tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[0] + offset_row], in_stride, dx_ptr[0], dy_ptr[0]), tmp0, 0);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[1] + offset_row], in_stride, dx_ptr[1], dy_ptr[1]), tmp0, 1);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[2] + offset_row], in_stride, dx_ptr[2], dy_ptr[2]), tmp0, 2);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[3] + offset_row], in_stride, dx_ptr[3], dy_ptr[3]), tmp0, 3);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[4] + offset_row], in_stride, dx_ptr[4], dy_ptr[4]), tmp0, 4);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[5] + offset_row], in_stride, dx_ptr[5], dy_ptr[5]), tmp0, 5);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[6] + offset_row], in_stride, dx_ptr[6], dy_ptr[6]), tmp0, 6);
-                    tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[7] + offset_row], in_stride, dx_ptr[7], dy_ptr[7]), tmp0, 7);
-                }
+
+                tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[0] + offset_row], in_stride, dx_ptr[0], dy_ptr[0]), tmp0, 0);
+                tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[1] + offset_row], in_stride, dx_ptr[1], dy_ptr[1]), tmp0, 1);
+                tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[2] + offset_row], in_stride, dx_ptr[2], dy_ptr[2]), tmp0, 2);
+                tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[3] + offset_row], in_stride, dx_ptr[3], dy_ptr[3]), tmp0, 3);
+                tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[4] + offset_row], in_stride, dx_ptr[4], dy_ptr[4]), tmp0, 4);
+                tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[5] + offset_row], in_stride, dx_ptr[5], dy_ptr[5]), tmp0, 5);
+                tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[6] + offset_row], in_stride, dx_ptr[6], dy_ptr[6]), tmp0, 6);
+                tmp0 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[7] + offset_row], in_stride, dx_ptr[7], dy_ptr[7]), tmp0, 7);
+
                 uint8x8_t tmp1 = vdup_n_u8(0);
-                if(is_quantized)
-                {
-                    tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[8] + offset_row], in_stride, dx_ptr[8], dy_ptr[8], iq_info, oq_info), tmp1, 0);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[9] + offset_row], in_stride, dx_ptr[9], dy_ptr[9], iq_info, oq_info), tmp1, 1);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[10] + offset_row], in_stride, dx_ptr[10], dy_ptr[10], iq_info, oq_info), tmp1, 2);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[11] + offset_row], in_stride, dx_ptr[11], dy_ptr[11], iq_info, oq_info), tmp1, 3);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[12] + offset_row], in_stride, dx_ptr[12], dy_ptr[12], iq_info, oq_info), tmp1, 4);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[13] + offset_row], in_stride, dx_ptr[13], dy_ptr[13], iq_info, oq_info), tmp1, 5);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[14] + offset_row], in_stride, dx_ptr[14], dy_ptr[14], iq_info, oq_info), tmp1, 6);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1_quantized(&in_ptr[offsets_ptr[15] + offset_row], in_stride, dx_ptr[15], dy_ptr[15], iq_info, oq_info), tmp1, 7);
-                }
-                else
-                {
-                    tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[8] + offset_row], in_stride, dx_ptr[8], dy_ptr[8]), tmp1, 0);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[9] + offset_row], in_stride, dx_ptr[9], dy_ptr[9]), tmp1, 1);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[10] + offset_row], in_stride, dx_ptr[10], dy_ptr[10]), tmp1, 2);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[11] + offset_row], in_stride, dx_ptr[11], dy_ptr[11]), tmp1, 3);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[12] + offset_row], in_stride, dx_ptr[12], dy_ptr[12]), tmp1, 4);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[13] + offset_row], in_stride, dx_ptr[13], dy_ptr[13]), tmp1, 5);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[14] + offset_row], in_stride, dx_ptr[14], dy_ptr[14]), tmp1, 6);
-                    tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[15] + offset_row], in_stride, dx_ptr[15], dy_ptr[15]), tmp1, 7);
-                }
+
+                tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[8] + offset_row], in_stride, dx_ptr[8], dy_ptr[8]), tmp1, 0);
+                tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[9] + offset_row], in_stride, dx_ptr[9], dy_ptr[9]), tmp1, 1);
+                tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[10] + offset_row], in_stride, dx_ptr[10], dy_ptr[10]), tmp1, 2);
+                tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[11] + offset_row], in_stride, dx_ptr[11], dy_ptr[11]), tmp1, 3);
+                tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[12] + offset_row], in_stride, dx_ptr[12], dy_ptr[12]), tmp1, 4);
+                tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[13] + offset_row], in_stride, dx_ptr[13], dy_ptr[13]), tmp1, 5);
+                tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[14] + offset_row], in_stride, dx_ptr[14], dy_ptr[14]), tmp1, 6);
+                tmp1 = vset_lane_u8(delta_bilinear_c1(&in_ptr[offsets_ptr[15] + offset_row], in_stride, dx_ptr[15], dy_ptr[15]), tmp1, 7);
+
                 vst1q_u8(out.ptr(), vcombine_u8(tmp0, tmp1));
             },
             in, offsets, dx, dy, out);
@@ -891,8 +959,8 @@ void NEScaleKernel::scale_area_nchw(const Window &window)
     Iterator in(_input, win_in);
     Iterator out(_output, window);
 
-    const auto   wr        = arm_compute::calculate_resize_ratio(_input->info()->dimension(0), _output->info()->dimension(0), _align_corners);
-    const auto   hr        = arm_compute::calculate_resize_ratio(_input->info()->dimension(1), _output->info()->dimension(1), _align_corners);
+    const auto   wr        = arm_compute::scale_utils::calculate_resize_ratio(_input->info()->dimension(0), _output->info()->dimension(0), _align_corners);
+    const auto   hr        = arm_compute::scale_utils::calculate_resize_ratio(_input->info()->dimension(1), _output->info()->dimension(1), _align_corners);
     const auto   w         = _input->info()->dimension(0);
     const auto   h         = _input->info()->dimension(1);
     const size_t in_stride = _input->info()->strides_in_bytes()[1];
@@ -939,7 +1007,7 @@ void NEScaleKernel::scale_nhwc(const Window &window)
     const size_t input_stride_c = _input->info()->strides_in_bytes()[idx_channels];
 
     // Compute the ratio between source height and destination height
-    const auto hr = arm_compute::calculate_resize_ratio(_input->info()->dimension(idx_height), _output->info()->dimension(idx_height), _align_corners);
+    const auto hr = arm_compute::scale_utils::calculate_resize_ratio(_input->info()->dimension(idx_height), _output->info()->dimension(idx_height), _align_corners);
 
     // Don't increment in width/height/channels for the input tensor
     // A pointer to the start of this plane is needed as base for the precomputed offsets
@@ -950,12 +1018,25 @@ void NEScaleKernel::scale_nhwc(const Window &window)
 
     switch(_input->info()->data_type())
     {
+        case DataType::QASYMM8_SIGNED:
+        {
+            if(_policy == InterpolationPolicy::NEAREST_NEIGHBOR)
+            {
+                scale_nearest_nhwc_core<int8_t>(_input, _offsets, _output, hr, window, win_in, input_stride_w, input_stride_h, input_stride_c, _sampling_offset, _align_corners);
+            }
+            else
+            {
+                scale_bilinear_nhwc_core<int8_t, int8_t>(_input, _offsets, _dx, _dy, _output, hr, _sampling_offset,
+                                                         window, win_in, input_stride_w, input_stride_h, input_stride_c, _border_mode, _constant_border_value, _use_padding);
+            }
+            break;
+        }
         case DataType::QASYMM8:
         case DataType::U8:
         {
             if(_policy == InterpolationPolicy::NEAREST_NEIGHBOR)
             {
-                scale_nearest_nhwc_core<uint8_t>(_input, _offsets, _output, hr, window, win_in, input_stride_w, input_stride_h, input_stride_c, _sampling_offset);
+                scale_nearest_nhwc_core<uint8_t>(_input, _offsets, _output, hr, window, win_in, input_stride_w, input_stride_h, input_stride_c, _sampling_offset, _align_corners);
             }
             else
             {
@@ -968,7 +1049,7 @@ void NEScaleKernel::scale_nhwc(const Window &window)
         {
             if(_policy == InterpolationPolicy::NEAREST_NEIGHBOR)
             {
-                scale_nearest_nhwc_core<int16_t>(_input, _offsets, _output, hr, window, win_in, input_stride_w, input_stride_h, input_stride_c, _sampling_offset);
+                scale_nearest_nhwc_core<int16_t>(_input, _offsets, _output, hr, window, win_in, input_stride_w, input_stride_h, input_stride_c, _sampling_offset, _align_corners);
             }
             else
             {
@@ -983,7 +1064,7 @@ void NEScaleKernel::scale_nhwc(const Window &window)
             if(_policy == InterpolationPolicy::NEAREST_NEIGHBOR)
             {
                 scale_nearest_nhwc_core<float16_t>(_input, _offsets, _output, hr,
-                                                   window, win_in, input_stride_w, input_stride_h, input_stride_c, _sampling_offset);
+                                                   window, win_in, input_stride_w, input_stride_h, input_stride_c, _sampling_offset, _align_corners);
             }
             else
             {
@@ -997,7 +1078,7 @@ void NEScaleKernel::scale_nhwc(const Window &window)
         {
             if(_policy == InterpolationPolicy::NEAREST_NEIGHBOR)
             {
-                scale_nearest_nhwc_core<float>(_input, _offsets, _output, hr, window, win_in, input_stride_w, input_stride_h, input_stride_c, _sampling_offset);
+                scale_nearest_nhwc_core<float>(_input, _offsets, _output, hr, window, win_in, input_stride_w, input_stride_h, input_stride_c, _sampling_offset, _align_corners);
             }
             else
             {
@@ -1013,22 +1094,21 @@ void NEScaleKernel::scale_nhwc(const Window &window)
 }
 
 Status NEScaleKernel::validate(const ITensorInfo *input, const ITensorInfo *dx, const ITensorInfo *dy,
-                               const ITensorInfo *offsets, ITensorInfo *output, InterpolationPolicy policy,
-                               BorderMode border_mode, PixelValue constant_border_value, SamplingPolicy sampling_policy, bool use_padding, bool align_corners)
+                               const ITensorInfo *offsets, ITensorInfo *output, const ScaleKernelInfo &info)
 {
     BorderSize border_size(1);
     if(input->data_layout() == DataLayout::NHWC)
     {
-        border_size = (border_mode == BorderMode::CONSTANT && policy == InterpolationPolicy::BILINEAR) ? BorderSize(1, 0, 0, 0) : BorderSize(0);
+        border_size = (info.border_mode == BorderMode::CONSTANT && info.interpolation_policy == InterpolationPolicy::BILINEAR) ? BorderSize(1, 0, 0, 0) : BorderSize(0);
     }
 
-    ARM_COMPUTE_RETURN_ON_ERROR(validate_arguments(input, dx, dy, offsets, output, policy, border_mode, constant_border_value, sampling_policy, use_padding, align_corners));
+    ARM_COMPUTE_RETURN_ON_ERROR(validate_arguments(input, dx, dy, offsets, output, info));
     ARM_COMPUTE_RETURN_ON_ERROR(validate_and_configure_window(input->clone().get(),
                                                               dx != nullptr ? dx->clone().get() : nullptr,
                                                               dy != nullptr ? dy->clone().get() : nullptr,
                                                               offsets != nullptr ? offsets->clone().get() : nullptr,
                                                               output->clone().get(),
-                                                              policy, border_mode == BorderMode::UNDEFINED, sampling_policy, border_size, use_padding)
+                                                              info, border_size)
                                 .first);
 
     return Status{};

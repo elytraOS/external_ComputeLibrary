@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,7 +29,7 @@ template<>
 void MergeResults<24, 8, false>(__fp16 *out, const __fp16 *in, const int ldout, const int y0, const int ymax, const int x0, const int xmax, const __fp16 *bias, Activation act, bool append)
 {
     const __fp16 *inptr = in;
-    __fp16 nullbias[24] = { 0 };
+    __fp16 nullbias[24];
     __fp16 minval = - static_cast<__fp16>(std::numeric_limits<float>::infinity());
     __fp16 maxval =   static_cast<__fp16>(std::numeric_limits<float>::infinity());
 
@@ -1130,11 +1130,7 @@ void MergeResults<24, 8, false>(__fp16 *out, const __fp16 *in, const int ldout, 
             }
             else
             {
-                const __fp16 *biasptr = nullbias;
-                if (bias)
-                {
-                    biasptr = bias + i;
-                }
+                const __fp16 *biasptr = bias ? bias + i : nullbias;
 
                 switch(height)
                 {

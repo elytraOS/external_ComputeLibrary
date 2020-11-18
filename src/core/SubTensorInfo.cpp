@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,7 +26,6 @@
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/Validate.h"
-#include "support/ToolchainSupport.h"
 
 using namespace arm_compute;
 
@@ -42,12 +41,6 @@ namespace
  */
 TensorShape extend_parent_shape(TensorShape parent_shape, TensorShape shape, Coordinates coords)
 {
-    // Subtensor should not index in x, y dimensions.
-    ARM_COMPUTE_ERROR_ON((coords.x() != 0) || (coords.y() != 0));
-
-    // Cannot extend on x, y ?
-    ARM_COMPUTE_ERROR_ON((parent_shape.total_size() != 0) && (parent_shape.x() != shape.x()) && (parent_shape.y() != shape.y()));
-
     // Extend shape
     for(unsigned int i = 0; i < TensorShape::num_max_dimensions; ++i)
     {
@@ -71,6 +64,7 @@ SubTensorInfo::SubTensorInfo(ITensorInfo *parent, TensorShape tensor_shape, Coor
     : _parent(parent), _tensor_shape(tensor_shape), _coords(coords), _valid_region{ Coordinates(), _tensor_shape }, _extend_parent(extend_parent)
 {
     ARM_COMPUTE_ERROR_ON(parent == nullptr);
+
     // Check if subtensor is valid if parent is configured
     if(parent->tensor_shape().total_size() != 0 && !_extend_parent)
     {
@@ -119,6 +113,17 @@ bool SubTensorInfo::extend_padding(const PaddingSize &padding)
     ARM_COMPUTE_ERROR_ON(!_parent->is_resizable());
     ARM_COMPUTE_ERROR_ON(_parent->total_size() == 0);
 
+    // Check that you do not extend padding on sub-tensors unless XY shape matches parent tensor
+    // TODO(COMPMID-3558): Remove _extend_parent check
+    if(!_extend_parent && (padding.left || padding.right))
+    {
+        ARM_COMPUTE_ERROR_ON(_parent->tensor_shape().x() != tensor_shape().x());
+    }
+    if(!_extend_parent && (padding.top || padding.bottom))
+    {
+        ARM_COMPUTE_ERROR_ON(_parent->tensor_shape().y() != tensor_shape().y());
+    }
+
     // Extend parent padding if required
     return _parent->extend_padding(padding);
 }
@@ -127,7 +132,7 @@ int32_t SubTensorInfo::offset_element_in_bytes(const Coordinates &pos) const
 {
     ARM_COMPUTE_ERROR_ON_COORDINATES_DIMENSIONS_GTE(pos, _tensor_shape.num_dimensions());
 
-    int32_t         offset  = offset_first_element_in_bytes();
+    int32_t        offset  = offset_first_element_in_bytes();
     const Strides &strides = strides_in_bytes();
 
     for(size_t i = 0; i < _tensor_shape.num_dimensions(); ++i)

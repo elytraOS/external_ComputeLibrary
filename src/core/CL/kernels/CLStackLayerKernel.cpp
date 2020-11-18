@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,16 +27,13 @@
 #include "arm_compute/core/CL/CLKernelLibrary.h"
 #include "arm_compute/core/CL/CLValidate.h"
 #include "arm_compute/core/CL/ICLTensor.h"
-#include "arm_compute/core/CL/OpenCL.h"
-#include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
-#include "arm_compute/core/IAccessWindow.h"
 #include "arm_compute/core/TensorInfo.h"
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/Window.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
 
-#include "support/ToolchainSupport.h"
+#include "support/StringSupport.h"
 
 using namespace arm_compute::misc::shape_calculator;
 
@@ -82,6 +79,11 @@ CLStackLayerKernel::CLStackLayerKernel()
 
 void CLStackLayerKernel::configure(const ICLTensor *input, unsigned int axis, unsigned int idx_input, unsigned int num_tensors, ICLTensor *output)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input, axis, idx_input, num_tensors, output);
+}
+
+void CLStackLayerKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input, unsigned int axis, unsigned int idx_input, unsigned int num_tensors, ICLTensor *output)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
     ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(input->info(), axis, idx_input, num_tensors, output->info()));
 
@@ -93,13 +95,13 @@ void CLStackLayerKernel::configure(const ICLTensor *input, unsigned int axis, un
 
     // Add build options
     CLBuildOptions build_opts;
-    build_opts.add_option("-DDATA_TYPE=" + get_underlying_cl_type_from_data_type(input->info()->data_type()));
+    build_opts.add_option("-DDATA_TYPE=" + get_cl_type_from_data_type(input->info()->data_type()));
     build_opts.add_option("-DAXIS=" + support::cpp11::to_string(axis));
     build_opts.add_option("-DSRC_DIM2=" + support::cpp11::to_string(input->info()->dimension(2)));
     build_opts.add_option("-DDST_DIM3=" + support::cpp11::to_string(output->info()->dimension(3)));
 
     // Create kernel
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel("stack_layer", build_opts.options()));
+    _kernel = create_kernel(compile_context, "stack_layer", build_opts.options());
 
     ARM_COMPUTE_ERROR_THROW_ON(win_config.first);
     ICLKernel::configure_internal(win_config.second);

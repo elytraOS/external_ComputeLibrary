@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -73,19 +73,17 @@
 #include "arm_compute/core/CL/kernels/CLFlattenLayerKernel.h"
 #include "arm_compute/core/CL/kernels/CLFloorKernel.h"
 #include "arm_compute/core/CL/kernels/CLFuseBatchNormalizationKernel.h"
-#include "arm_compute/core/CL/kernels/CLGEMMLowpMatrixMultiplyKernel.h"
 #include "arm_compute/core/CL/kernels/CLGEMMLowpMatrixMultiplyNativeKernel.h"
 #include "arm_compute/core/CL/kernels/CLGEMMLowpMatrixMultiplyReshapedKernel.h"
 #include "arm_compute/core/CL/kernels/CLGEMMLowpMatrixMultiplyReshapedOnlyRHSKernel.h"
 #include "arm_compute/core/CL/kernels/CLGEMMLowpOffsetContributionKernel.h"
 #include "arm_compute/core/CL/kernels/CLGEMMLowpOffsetContributionOutputStageKernel.h"
+#include "arm_compute/core/CL/kernels/CLGEMMLowpQuantizeDownInt32ScaleByFloatKernel.h"
+#include "arm_compute/core/CL/kernels/CLGEMMLowpQuantizeDownInt32ScaleKernel.h"
 #include "arm_compute/core/CL/kernels/CLGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPointKernel.h"
 #include "arm_compute/core/CL/kernels/CLGEMMLowpQuantizeDownInt32ToInt8ScaleByFixedPointKernel.h"
 #include "arm_compute/core/CL/kernels/CLGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPointKernel.h"
-#include "arm_compute/core/CL/kernels/CLGEMMLowpQuantizeDownInt32ToUint8ScaleByFloatKernel.h"
-#include "arm_compute/core/CL/kernels/CLGEMMLowpQuantizeDownInt32ToUint8ScaleKernel.h"
 #include "arm_compute/core/CL/kernels/CLGEMMLowpReductionKernel.h"
-#include "arm_compute/core/CL/kernels/CLGEMMMatrixAccumulateBiasesKernel.h"
 #include "arm_compute/core/CL/kernels/CLGEMMMatrixMultiplyKernel.h"
 #include "arm_compute/core/CL/kernels/CLGEMMMatrixMultiplyNativeKernel.h"
 #include "arm_compute/core/CL/kernels/CLGEMMMatrixMultiplyReshapedKernel.h"
@@ -110,6 +108,7 @@
 #include "arm_compute/core/CL/kernels/CLLKTrackerKernel.h"
 #include "arm_compute/core/CL/kernels/CLLocallyConnectedMatrixMultiplyKernel.h"
 #include "arm_compute/core/CL/kernels/CLMagnitudePhaseKernel.h"
+#include "arm_compute/core/CL/kernels/CLMaxUnpoolingLayerKernel.h"
 #include "arm_compute/core/CL/kernels/CLMeanStdDevKernel.h"
 #include "arm_compute/core/CL/kernels/CLMeanStdDevNormalizationKernel.h"
 #include "arm_compute/core/CL/kernels/CLMedian3x3Kernel.h"
@@ -125,6 +124,7 @@
 #include "arm_compute/core/CL/kernels/CLPixelWiseMultiplicationKernel.h"
 #include "arm_compute/core/CL/kernels/CLPoolingLayerKernel.h"
 #include "arm_compute/core/CL/kernels/CLPriorBoxLayerKernel.h"
+#include "arm_compute/core/CL/kernels/CLQLSTMLayerNormalizationKernel.h"
 #include "arm_compute/core/CL/kernels/CLQuantizationLayerKernel.h"
 #include "arm_compute/core/CL/kernels/CLROIAlignLayerKernel.h"
 #include "arm_compute/core/CL/kernels/CLROIPoolingLayerKernel.h"

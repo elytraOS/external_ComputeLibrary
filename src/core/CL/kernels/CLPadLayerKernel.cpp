@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,7 +24,9 @@
 #include "arm_compute/core/CL/kernels/CLPadLayerKernel.h"
 
 #include "arm_compute/core/CL/CLHelpers.h"
+#include "arm_compute/core/CL/ICLTensor.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+#include "support/StringSupport.h"
 
 namespace arm_compute
 {
@@ -96,6 +98,11 @@ CLPadLayerKernel::CLPadLayerKernel()
 }
 
 void CLPadLayerKernel::configure(const ICLTensor *input, ICLTensor *output, const PaddingList &padding, PixelValue constant_value, PaddingMode mode)
+{
+    configure(CLKernelLibrary::get().get_compile_context(), input, output, padding, constant_value, mode);
+}
+
+void CLPadLayerKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input, ICLTensor *output, const PaddingList &padding, PixelValue constant_value, PaddingMode mode)
 {
     // Perform validation step
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
@@ -188,7 +195,7 @@ void CLPadLayerKernel::configure(const ICLTensor *input, ICLTensor *output, cons
     }
 
     // Create kernel
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel(kernel_name, build_opts.options()));
+    _kernel = create_kernel(compile_context, kernel_name, build_opts.options());
 }
 
 Status CLPadLayerKernel::validate(const ITensorInfo *input, const ITensorInfo *output, const PaddingList &padding, PixelValue constant_value, PaddingMode mode)

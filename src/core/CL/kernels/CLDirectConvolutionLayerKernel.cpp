@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -36,7 +36,7 @@
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
 #include "arm_compute/core/utils/quantization/AsymmHelpers.h"
-#include "support/ToolchainSupport.h"
+#include "support/StringSupport.h"
 
 namespace arm_compute
 {
@@ -45,7 +45,7 @@ namespace
 Status validate_arguments(const ITensorInfo *input, const ITensorInfo *weights, const ITensorInfo *biases, const ITensorInfo *output, const PadStrideInfo &conv_info)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_F16_UNSUPPORTED(input);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::QASYMM8, DataType::F16, DataType::F32);
+    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::QASYMM8_SIGNED, DataType::QASYMM8, DataType::F16, DataType::F32);
     ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(input, weights);
 
     const DataLayout data_layout = input->data_layout();
@@ -60,20 +60,9 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *weights, 
                                     "Weights feature map dimension should match the respective input's one");
     ARM_COMPUTE_RETURN_ERROR_ON_MSG(weights->num_dimensions() > 4, "Weights can be at most 4 dimensional");
     ARM_COMPUTE_RETURN_ERROR_ON_MSG((weights->dimension(width_idx) == 1) && std::get<0>(conv_info.stride()) > 3, "Strides larger than 3 not supported for 1x1 convolution.");
-    ARM_COMPUTE_RETURN_ERROR_ON_MSG((weights->dimension(width_idx) == 3 || weights->dimension(width_idx) == 5) && std::get<0>(conv_info.stride()) > 2,
-                                    "Strides larger than 2 not supported for 3x3 convolution.");
-
-    const auto data_type = input->data_type();
-
-    if(weights->dimension(width_idx) == 9)
-    {
-        const auto supported_data_layout = is_data_type_quantized(data_type) ? DataLayout::NCHW : DataLayout::NHWC;
-        const auto error_message         = std::string("Only " + string_from_data_layout(supported_data_layout) + " layout is supported for 9x9 convolution with " + string_from_data_type(
-                                                           data_type)
-                                                       + " type");
-
-        ARM_COMPUTE_RETURN_ERROR_ON_MSG((supported_data_layout != data_layout), error_message.c_str());
-    }
+    ARM_COMPUTE_RETURN_ERROR_ON_MSG((weights->dimension(width_idx) == 3 || weights->dimension(width_idx) == 5 || weights->dimension(width_idx) == 9)
+                                    && std::get<0>(conv_info.stride()) > 2,
+                                    "Strides larger than 2 not supported for 3x3, 5x5, 9x9 convolution.");
 
     if(biases != nullptr)
     {
@@ -99,6 +88,7 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *weights, 
         ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(input, output);
     }
 
+    const auto data_type = input->data_type();
     if(is_data_type_quantized(data_type))
     {
         const UniformQuantizationInfo iqinfo = input->quantization_info().uniform();
@@ -358,7 +348,6 @@ std::pair<Status, Window> validate_and_configure_window(ITensorInfo *input, ITen
     TensorShape output_shape = misc::shape_calculator::compute_deep_convolution_shape(*input, *weights, conv_info);
 
     // Output auto inizialitation if not yet initialized
-    // TODO(COMPMID-2078): input->clone()->set_tensor_shape(output_shape) doesn't work with subtensors for grouped direct convolutions (AlexNet).
     auto_init_if_empty(*output, output_shape,
                        1,
                        input->data_type(),
@@ -423,6 +412,12 @@ BorderSize CLDirectConvolutionLayerKernel::border_size() const
 
 void CLDirectConvolutionLayerKernel::configure(const ICLTensor *input, const ICLTensor *weights, const ICLTensor *biases, ICLTensor *output, const PadStrideInfo &conv_info)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input, weights, biases, output, conv_info);
+}
+
+void CLDirectConvolutionLayerKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input, const ICLTensor *weights, const ICLTensor *biases, ICLTensor *output,
+                                               const PadStrideInfo &conv_info)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, weights, output);
 
     _data_layout          = input->info()->data_layout();
@@ -437,7 +432,6 @@ void CLDirectConvolutionLayerKernel::configure(const ICLTensor *input, const ICL
     TensorShape output_shape = misc::shape_calculator::compute_deep_convolution_shape(*input->info(), *weights->info(), conv_info);
 
     // Output auto inizialitation if not yet initialized
-    // TODO(COMPMID-2078): input->clone()->set_tensor_shape(output_shape) doesn't work with subtensors for grouped direct convolutions (AlexNet).
     auto_init_if_empty(*output->info(),
                        output_shape,
                        1,
@@ -491,7 +485,7 @@ void CLDirectConvolutionLayerKernel::configure(const ICLTensor *input, const ICL
         build_options.add_option(std::string("-DWEIGHTS_DEPTH=" + support::cpp11::to_string(_weights->info()->dimension(channel_idx))));
 
         kernel_name << "_f32_bifrost";
-        _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel(kernel_name.str(), build_options.options()));
+        _kernel = create_kernel(compile_context, kernel_name.str(), build_options.options());
     }
     else
     {
@@ -509,6 +503,7 @@ void CLDirectConvolutionLayerKernel::configure(const ICLTensor *input, const ICL
             build_options.add_option(std::string("-DSRC_WIDTH=" + support::cpp11::to_string(_input->info()->dimension(width_idx))));
             build_options.add_option(std::string("-DPAD_LEFT=" + support::cpp11::to_string(conv_info.pad_left())));
             build_options.add_option(std::string("-DPAD_TOP=" + support::cpp11::to_string(conv_info.pad_top())));
+            build_options.add_option(std::string("-DPAD_BOTTOM=" + support::cpp11::to_string(conv_info.pad_bottom())));
             build_options.add_option(std::string("-DSTRIDE_Y=" + support::cpp11::to_string(_conv_stride_y)));
             if(run_optimized_for_bifrost_nhwc)
             {
@@ -534,7 +529,7 @@ void CLDirectConvolutionLayerKernel::configure(const ICLTensor *input, const ICL
             build_options.add_option("-DKERNEL_SIZE=" + support::cpp11::to_string(kernel_size));
 
             // Create kernel
-            _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel("direct_convolution_quantized", build_options.options()));
+            _kernel = create_kernel(compile_context, "direct_convolution_quantized", build_options.options());
 
             // Set static kernel arguments
             unsigned int idx = 3 * num_arguments_per_3D_tensor() + ((_biases != nullptr) ? num_arguments_per_1D_tensor() : 0) + 1;
@@ -545,7 +540,7 @@ void CLDirectConvolutionLayerKernel::configure(const ICLTensor *input, const ICL
         else
         {
             // Create kernel
-            _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel(kernel_name.str(), build_options.options()));
+            _kernel = create_kernel(compile_context, kernel_name.str(), build_options.options());
         }
     }
 

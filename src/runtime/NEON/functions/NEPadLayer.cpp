@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,8 +27,6 @@
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
-
-#include "support/ToolchainSupport.h"
 
 namespace arm_compute
 {
@@ -119,7 +117,7 @@ void NEPadLayer::configure_reflect_symmetric_mode(ITensor *input, ITensor *outpu
             const int32_t end_mask_after    = ends_after[i] < 0 ? ~0 : ~(1u << i);
 
             // Reflect the input values for the padding before and after the input.
-            std::vector<ITensor *> concat_vector;
+            std::vector<const ITensor *> concat_vector;
             if(_padding[i].first > 0)
             {
                 if(i < prev->info()->num_dimensions())

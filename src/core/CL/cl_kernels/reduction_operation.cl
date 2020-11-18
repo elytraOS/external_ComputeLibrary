@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020 ARM Limited.
+ * Copyright (c) 2016-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -167,11 +167,11 @@ __kernel void reduction_operation_x(
  * @note The product flag must be passed at compile time using -DPROD if we want to compute the product, otherwise sum will be used
  * @note In case of MIN and MAX the condition data type must be passed at compile time using -DCOND_DATA_TYPE e.g. -DCOND_DATA_TYPE=short
  *
- * @param[in] src_ptr                              Pointer to the source tensor. Supported data types: S32/F16/F32 and QASYMM8 for operation MEAN
+ * @param[in] src_ptr                              Pointer to the source tensor. Supported data types: S32/F16/F32 and QASYMM8/QASYMM8_SIGNED for operation MEAN
  * @param[in] src_stride_x                         Stride of the source tensor in X dimension (in bytes)
  * @param[in] src_step_x                           src_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in] src_offset_first_element_in_bytes    The offset of the first element in the source tensor
- * @param[in] output_ptr                           The local buffer to hold sumed values. Supported data types: same as @p src_ptt
+ * @param[in] output_ptr                           The local buffer to hold sumed values. Supported data types: same as @p src_ptr
  * @param[in] output_stride_x                      Stride of the output tensor in X dimension (in bytes)
  * @param[in] output_step_x                        output_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in] output_offset_first_element_in_bytes The offset of the first element in the source tensor
@@ -196,7 +196,7 @@ __kernel void reduction_operation_non_parallel_x(
 #if defined(MIN)
         res = select(res, in, CONVERT(ISLESS(in, res), COND_DATA_TYPE));
 #elif defined(MAX)
-        res                             = select(res, in, CONVERT(ISGREATER(in, res), COND_DATA_TYPE));
+        res = select(res, in, CONVERT(ISGREATER(in, res), COND_DATA_TYPE));
 #elif defined(PROD)
 #if defined(OFFSET) && defined(SCALE)
         res_f *= DEQUANTIZE(in, OFFSET, SCALE, DATA_TYPE_PROMOTED, 1);
@@ -223,11 +223,7 @@ __kernel void reduction_operation_non_parallel_x(
     res = QUANTIZE(res_f, OFFSET, SCALE, DATA_TYPE_PROMOTED, 1);
 #endif // defined(PROD) && defined(OFFSET) && defined(SCALE)
 
-#if defined(MIN) || defined(MAX)
-    *((__global DATA_TYPE_PROMOTED *)output.ptr) = res;
-#else  // !(defined(MIN) || defined(MAX))
     *((__global DATA_TYPE *)output.ptr) = CONVERT_SAT(res, DATA_TYPE);
-#endif // defined(MIN) || defined(MAX)
 }
 #endif // defined(WIDTH)
 
@@ -237,13 +233,13 @@ __kernel void reduction_operation_non_parallel_x(
  * @note The input data type must be passed at compile time using -DDATA_TYPE: e.g. -DDATA_TYPE=float
  * @note The height size must be passed at compile time using -DHEIGHT e.g. -DHEIGHT=128
  *
- * @param[in] src_ptr                              Pointer to the source tensor. Supported data types: QASYMM8/S32/F16/F32
+ * @param[in] src_ptr                              Pointer to the source tensor. Supported data types: QASYMM8/QASYMM8_SIGNED/S32/F16/F32
  * @param[in] src_stride_x                         Stride of the source tensor in X dimension (in bytes)
  * @param[in] src_step_x                           src_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in] src_stride_y                         Stride of the source tensor in Y dimension (in bytes)
  * @param[in] src_step_y                           src_stride_y * number of elements along Y processed per workitem(in bytes)
  * @param[in] src_offset_first_element_in_bytes    The offset of the first element in the source tensor
- * @param[in] output_ptr                           The local buffer to hold sumed values. Supported data types: same as @p src_ptt
+ * @param[in] output_ptr                           The local buffer to hold sumed values. Supported data types: same as @p src_ptr
  * @param[in] output_stride_x                      Stride of the output tensor in X dimension (in bytes)
  * @param[in] output_step_x                        output_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in] output_stride_y                      Stride of the output tensor in Y dimension (in bytes)
@@ -276,7 +272,7 @@ __kernel void reduction_operation_y(
 #if defined(MIN)
         res = select(res, in, ISLESS(in, res));
 #elif defined(MAX)
-        res                             = select(res, in, ISGREATER(in, res));
+        res = select(res, in, ISGREATER(in, res));
 #else // !(defined(MAX) || defined(MIN))
 #if defined(SUM_SQUARE)
         in *= in;
@@ -320,7 +316,7 @@ __kernel void reduction_operation_y(
  * @note The data type must be passed at compile time using -DDATA_TYPE: e.g. -DDATA_TYPE=float
  * @note The depth size must be passed at compile time using -DDEPTH e.g. -DDEPTH=128
  *
- * @param[in] input_ptr                            Pointer to the source tensor. Supported data types: QASYMM8/S32/F16/F32
+ * @param[in] input_ptr                            Pointer to the source tensor. Supported data types: QASYMM8/QASYMM8_SIGNED/S32/F16/F32
  * @param[in] input_stride_x                       Stride of the source tensor in X dimension (in bytes)
  * @param[in] input_step_x                         input_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in] input_stride_y                       Stride of the source tensor in Y dimension (in bytes)
@@ -328,7 +324,7 @@ __kernel void reduction_operation_y(
  * @param[in] input_stride_z                       Stride of the source tensor in Z dimension (in bytes)
  * @param[in] input_step_z                         input_stride_z * number of elements along Z processed per workitem(in bytes)
  * @param[in] input_offset_first_element_in_bytes  The offset of the first element in the source tensor
- * @param[in] output_ptr                           The local buffer to hold sumed values. Supported data types: same as @p input_ptt
+ * @param[in] output_ptr                           The local buffer to hold sumed values. Supported data types: same as @p input_ptr
  * @param[in] output_stride_x                      Stride of the output tensor in X dimension (in bytes)
  * @param[in] output_step_x                        output_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in] output_stride_y                      Stride of the output tensor in Y dimension (in bytes)
@@ -373,7 +369,7 @@ __kernel void reduction_operation_z(
 #if defined(MIN)
         res = select(res, in, ISLESS(in, res));
 #elif defined(MAX)
-        res                             = select(res, in, ISGREATER(in, res));
+        res = select(res, in, ISGREATER(in, res));
 #else // !(defined(MAX) || defined(MIN))
 #if defined(SUM_SQUARE)
         in *= in;
@@ -424,7 +420,7 @@ __kernel void reduction_operation_z(
  * @note The batch size must be passed at compile time using -DBATCH e.g. -DBATCH=128
  * @note The depth size must be passed at compile time using -DBATCH e.g. -DDEPTH=128
  *
- * @param[in] input_ptr                            Pointer to the source tensor. Supported data types: QASYMM8/S32/F16/F32
+ * @param[in] input_ptr                            Pointer to the source tensor. Supported data types: QASYMM8/QASYMM8_SIGNED/S32/F16/F32
  * @param[in] input_stride_x                       Stride of the source tensor in X dimension (in bytes)
  * @param[in] input_step_x                         input_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in] input_stride_y                       Stride of the source tensor in Y dimension (in bytes)
@@ -434,7 +430,7 @@ __kernel void reduction_operation_z(
  * @param[in] input_stride_w                       Stride of the source tensor in W dimension (in bytes)
  * @param[in] input_step_w                         input_stride_w * number of elements along W processed per workitem(in bytes)
  * @param[in] input_offset_first_element_in_bytes  The offset of the first element in the source tensor
- * @param[in] output_ptr                           The local buffer to hold sumed values. Supported data types: same as @p input_ptt
+ * @param[in] output_ptr                           The local buffer to hold sumed values. Supported data types: same as @p input_ptr
  * @param[in] output_stride_x                      Stride of the output tensor in X dimension (in bytes)
  * @param[in] output_step_x                        output_stride_x * number of elements along X processed per workitem(in bytes)
  * @param[in] output_stride_y                      Stride of the output tensor in Y dimension (in bytes)
@@ -472,7 +468,7 @@ __kernel void reduction_operation_w(
 #if defined(MIN)
         res = select(res, in, ISLESS(in, res));
 #elif defined(MAX)
-        res                             = select(res, in, ISGREATER(in, res));
+        res = select(res, in, ISGREATER(in, res));
 #else // !(defined(MAX) || defined(MIN))
 #if defined(SUM_SQUARE)
         in *= in;

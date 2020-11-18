@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -36,11 +36,9 @@ class EltwiseLayerNode final : public INode
 public:
     /** Constructor
      *
-     * @param[in] op       Element-wise operation to perform
-     * @param[in] c_policy (Optional) Convert policy used for the operation
-     * @param[in] r_policy (Optional) Rounding policy used for the operation
+     * @param[in] descriptor Containing information for the node described in @ref descriptors::EltwiseLayerDescriptor
      */
-    EltwiseLayerNode(EltwiseOperation op, ConvertPolicy c_policy = ConvertPolicy::SATURATE, RoundingPolicy r_policy = RoundingPolicy::TO_ZERO);
+    EltwiseLayerNode(const descriptors::EltwiseLayerDescriptor &descriptor);
     /** Eltwise operation accessor
      *
      * @return Eltwise operation that is to be performed by the node
@@ -59,17 +57,69 @@ public:
      */
     RoundingPolicy rounding_policy() const;
 
+    /** Returns fused activation
+     *
+     * @return Fused activation
+     */
+    ActivationLayerInfo fused_activation() const;
+
+    /** Returns output quantization info
+     *
+     * @return Output quantization info
+     */
+    QuantizationInfo output_quant_info() const;
+
+    /** Sets fused activation
+     *
+     * @param[in] fused_activation Fused activation to set
+     */
+    void set_fused_activation(ActivationLayerInfo fused_activation);
+
     // Inherited overridden methods:
     NodeType         type() const override;
     bool             forward_descriptors() override;
     TensorDescriptor configure_output(size_t idx) const override;
     void accept(INodeVisitor &v) override;
 
+    static constexpr NodeType node_type = NodeType::EltwiseLayer;
+
 private:
-    EltwiseOperation _op;
-    ConvertPolicy    _convert_policy;
-    RoundingPolicy   _rounding_policy;
+    descriptors::EltwiseLayerDescriptor descriptor;
 };
+
+/** Unary Eltwise Layer node */
+class UnaryEltwiseLayerNode final : public INode
+{
+public:
+    /** Constructor
+     *
+     * @param[in] descriptor Containing information for the node described in @ref descriptors::EltwiseLayerDescriptor
+     */
+    UnaryEltwiseLayerNode(const descriptors::UnaryEltwiseLayerDescriptor &descriptor);
+    /** Unary eltwise layer descriptor
+     *
+     * @return Unary eltwise layer descriptor which containing information
+     */
+    descriptors::UnaryEltwiseLayerDescriptor eltwise_descriptor() const;
+
+    /** Sets fused activation
+     *
+     * @param[in] fused_activation Fused activation to set
+     */
+    void set_fused_activation(ActivationLayerInfo fused_activation);
+
+    // Inherited overridden methods:
+    NodeType         type() const override;
+    bool             forward_descriptors() override;
+    TensorDescriptor configure_output(size_t idx) const override;
+    void accept(INodeVisitor &v) override;
+
+    static constexpr NodeType node_type = NodeType::UnaryEltwiseLayer;
+
+private:
+    descriptors::UnaryEltwiseLayerDescriptor descriptor;
+};
+
 } // namespace graph
 } // namespace arm_compute
 #endif /* ARM_COMPUTE_GRAPH_ELTWISE_LAYER_NODE_H */

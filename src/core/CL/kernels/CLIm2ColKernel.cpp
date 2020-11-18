@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -35,7 +35,7 @@
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
-#include "support/ToolchainSupport.h"
+#include "support/StringSupport.h"
 
 #include <cmath>
 #include <tuple>
@@ -69,6 +69,13 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, c
     ARM_COMPUTE_RETURN_ERROR_ON(num_groups == 0);
     ARM_COMPUTE_RETURN_ERROR_ON(input->data_layout() == DataLayout::NHWC && num_groups > 1);
     ARM_COMPUTE_RETURN_ERROR_ON((input->dimension(channel_idx) % num_groups) != 0);
+
+    // Since there's no implicit padding added, check the total input spatial dimensions (with conv paddings) are big enough for the kernel dimensions
+    const unsigned int width_idx    = get_data_layout_dimension_index(input->data_layout(), DataLayoutDimension::WIDTH);
+    const unsigned int height_idx   = get_data_layout_dimension_index(input->data_layout(), DataLayoutDimension::HEIGHT);
+    const unsigned     total_width  = input->dimension(width_idx) + conv_info.pad_left() + conv_info.pad_right();
+    const unsigned     total_height = input->dimension(height_idx) + conv_info.pad_top() + conv_info.pad_bottom();
+    ARM_COMPUTE_RETURN_ERROR_ON((total_width < kernel_dims.width) || (total_height < kernel_dims.height));
 
     if(output->total_size() > 0)
     {
@@ -106,12 +113,12 @@ std::pair<Status, Window> validate_and_configure_window(ITensorInfo *input, ITen
         win = calculate_max_window(*input, Steps(num_elems_processed_per_iteration));
 
         const int xin_start = 0;
-        const int xin_end   = input->dimension(0) < num_elems_processed_per_iteration ? ceil_to_multiple(input->dimension(0), num_elems_processed_per_iteration) : input->dimension(0);
+        const int xin_end   = input->dimension(0);
         const int yin_start = 0;
         const int yin_end   = input->dimension(1);
 
         const int xout_start = 0;
-        const int xout_end   = input->dimension(0) < num_elems_processed_per_iteration ? output->dimension(0) + (num_elems_processed_per_iteration - input->dimension(0)) : output->dimension(0);
+        const int xout_end   = output->dimension(0);
         const int yout_start = 0;
         const int yout_end   = output->dimension(1);
 
@@ -140,7 +147,6 @@ std::pair<Status, Window> validate_and_configure_window(ITensorInfo *input, ITen
             win = calculate_max_window(*input, Steps());
         }
     }
-
     output->set_valid_region(ValidRegion(Coordinates(), output->tensor_shape()));
     // set the Z dimension's step same size as the whole dimension so that one can't split across the Z dimension
     win.set_dimension_step(Window::DimZ, win[Window::DimZ].end() - win[Window::DimZ].start());
@@ -192,7 +198,7 @@ Im2ColConfiguration configure_opencl_kernel(const ITensorInfo *input, const Size
 
     if(data_layout == DataLayout::NHWC)
     {
-        num_elems_processed_per_iteration = 2;
+        num_elems_processed_per_iteration = std::min(2U, input_channel);
         is_padding_required_nchw          = false;
 
         // Only the 3x3 and 9x9 cases are optimized for NHWC
@@ -205,8 +211,14 @@ Im2ColConfiguration configure_opencl_kernel(const ITensorInfo *input, const Size
             kernel_name = "im2col9x9_";
         }
 
-        build_opts.add_option("-DVECTOR_SIZE=" + support::cpp11::to_string(num_elems_processed_per_iteration));
-        build_opts.add_option("-DLAST_ACCESSED=" + support::cpp11::to_string(std::max(static_cast<int>(input_channel - num_elems_processed_per_iteration), 0)));
+        // Get boundary vector (the first/last vector with potentially a partial vector size) size
+        // If input_channel is a multiple of num_elems_processed_per_iteration, the boundary vec size is the (full) vector size
+        // otherwise, the boundary vec size is the (partial) remainder vector size
+        const unsigned int vec_size          = num_elems_processed_per_iteration;
+        const unsigned int partial_vec_size  = input_channel % vec_size;
+        const unsigned int boundary_vec_size = vec_size - ((vec_size - partial_vec_size) % vec_size);
+        build_opts.add_option("-DVECTOR_SIZE=" + support::cpp11::to_string(vec_size));
+        build_opts.add_option("-DBOUNDARY_VECTOR_SIZE=" + support::cpp11::to_string(boundary_vec_size));
     }
     else
     {
@@ -295,6 +307,13 @@ CLIm2ColKernel::CLIm2ColKernel()
 void CLIm2ColKernel::configure(const ICLTensor *input, ICLTensor *output, const Size2D &kernel_dims, const PadStrideInfo &conv_info, bool has_bias, const Size2D &dilation,
                                unsigned int num_groups)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input, output, kernel_dims, conv_info, has_bias, dilation, num_groups);
+}
+
+void CLIm2ColKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input, ICLTensor *output, const Size2D &kernel_dims, const PadStrideInfo &conv_info, bool has_bias,
+                               const Size2D &dilation,
+                               unsigned int  num_groups)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
     ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(input->info(), output->info(), kernel_dims, conv_info, has_bias, dilation, num_groups));
 
@@ -311,7 +330,7 @@ void CLIm2ColKernel::configure(const ICLTensor *input, ICLTensor *output, const 
     Im2ColConfiguration im2col_config = configure_opencl_kernel(input->info(), kernel_dims, conv_info, has_bias, dilation, num_groups);
 
     // Create kernel
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel(im2col_config.kernel_name, im2col_config.build_options));
+    _kernel = create_kernel(compile_context, im2col_config.kernel_name, im2col_config.build_options);
 
     _input                             = input;
     _output                            = output;

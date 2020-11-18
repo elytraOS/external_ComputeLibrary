@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,8 +26,6 @@
 #include "arm_compute/core/ITensor.h"
 #include "arm_compute/runtime/NEON/NEScheduler.h"
 
-#include "support/ToolchainSupport.h"
-
 using namespace arm_compute;
 
 NEPoolingLayer::NEPoolingLayer()
@@ -35,7 +33,7 @@ NEPoolingLayer::NEPoolingLayer()
 {
 }
 
-void NEPoolingLayer::configure(ITensor *input, ITensor *output, const PoolingLayerInfo &pool_info)
+void NEPoolingLayer::configure(ITensor *input, ITensor *output, const PoolingLayerInfo &pool_info, ITensor *indices)
 {
     // Check if we have Global Pooling Layer
     _is_global_pooling_layer = (input->info()->dimension(0) == pool_info.pool_size.width) && (input->info()->dimension(1) == pool_info.pool_size.height);
@@ -44,15 +42,15 @@ void NEPoolingLayer::configure(ITensor *input, ITensor *output, const PoolingLay
     _data_layout = pool_info.data_layout == DataLayout::UNKNOWN ? input->info()->data_layout() : pool_info.data_layout;
 
     // Configure pooling kernel
-    _pooling_layer_kernel.configure(input, output, pool_info);
+    _pooling_layer_kernel.configure(input, output, pool_info, indices);
 
     switch(_data_layout)
     {
         case DataLayout::NCHW:
         {
             // Configure border depending on operation required (quantize border in case of asymmetric data_type)
-            BorderMode border_mode = (pool_info.pool_type == PoolingType::MAX) ? BorderMode::REPLICATE : BorderMode::CONSTANT;
-            PixelValue zero_value(0.f);
+            BorderMode border_mode = (!indices && pool_info.pool_type == PoolingType::MAX) ? BorderMode::REPLICATE : BorderMode::CONSTANT;
+            PixelValue zero_value((indices) ? std::numeric_limits<int>::min() : 0.f);
             if(is_data_type_quantized_asymmetric(input->info()->data_type()) && !pool_info.exclude_padding)
             {
                 zero_value = PixelValue(0, input->info()->data_type(), input->info()->quantization_info());
@@ -67,9 +65,9 @@ void NEPoolingLayer::configure(ITensor *input, ITensor *output, const PoolingLay
     }
 }
 
-Status NEPoolingLayer::validate(const ITensorInfo *input, const ITensorInfo *output, const PoolingLayerInfo &pool_info)
+Status NEPoolingLayer::validate(const ITensorInfo *input, const ITensorInfo *output, const PoolingLayerInfo &pool_info, const ITensorInfo *indices)
 {
-    return NEPoolingLayerKernel::validate(input, output, pool_info);
+    return NEPoolingLayerKernel::validate(input, output, pool_info, indices);
 }
 
 void NEPoolingLayer::run()

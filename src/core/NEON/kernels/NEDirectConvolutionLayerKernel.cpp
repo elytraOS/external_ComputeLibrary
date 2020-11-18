@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -321,32 +321,6 @@ public:
     }
 };
 
-#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
-
-template <unsigned int stridex>
-void accumulate_results(float16_t *buffer, const float16x8x2_t &values);
-
-template <>
-void accumulate_results<1>(float16_t *buffer, const float16x8x2_t &values)
-{
-    vst1q_f16(buffer, vaddq_f16(vld1q_f16(buffer), values.val[0]));
-    vst1q_f16(buffer + 8, vaddq_f16(vld1q_f16(buffer + 8), values.val[1]));
-}
-
-template <>
-void accumulate_results<2>(float16_t *buffer, const float16x8x2_t &values)
-{
-    vst1q_f16(buffer, vaddq_f16(vld1q_f16(buffer), values.val[0]));
-}
-
-template <>
-void accumulate_results<3>(float16_t *buffer, const float16x8x2_t &values)
-{
-    vst1_f16(buffer, vadd_f16(vld1_f16(buffer), vget_low_f16(values.val[0])));
-}
-
-#endif /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
-
 template <unsigned int stridex>
 float32x4x2_t convolve_5x5(const float *in_0, const float *in_1, const float *in_2, const float *in_3, const float *in_4,
                            const float *m0, const float *m1, const float *m2, const float *m3, const float *m4);
@@ -496,28 +470,6 @@ inline float32x4x2_t convolve_5x5<3>(const float *in_0, const float *in_1, const
     float32x4x2_t out = convolve_5x5<1>(in_0, in_1, in_2, in_3, in_4, m0, m1, m2, m3, m4);
     out.val[0]        = vsetq_lane_f32(vgetq_lane_f32(out.val[0], 3), out.val[0], 1);
     return out;
-}
-
-template <unsigned int stridex>
-void accumulate_results(float *buffer, const float32x4x2_t &values);
-
-template <>
-void accumulate_results<1>(float *buffer, const float32x4x2_t &values)
-{
-    vst1q_f32(buffer, vaddq_f32(vld1q_f32(buffer), values.val[0]));
-    vst1q_f32(buffer + 4, vaddq_f32(vld1q_f32(buffer + 4), values.val[1]));
-}
-
-template <>
-void accumulate_results<2>(float *buffer, const float32x4x2_t &values)
-{
-    vst1q_f32(buffer, vaddq_f32(vld1q_f32(buffer), values.val[0]));
-}
-
-template <>
-void accumulate_results<3>(float *buffer, const float32x4x2_t &values)
-{
-    vst1_f32(buffer, vadd_f32(vld1_f32(buffer), vget_low_f32(values.val[0])));
 }
 
 template <typename T1>
@@ -718,8 +670,7 @@ public:
                         for(int ow = 0; ow < output_w; ow += num_elems_written_per_iteration,
                             in_top += delta_input, in_mid += delta_input, in_low += delta_input, p_out += num_elems_written_per_iteration)
                         {
-                            auto vres = convolve_3x3(in_top, in_mid, in_low, vk_r0, vk_r1, vk_r2, stridex);
-                            store_results<stridex>(p_out, vres);
+                            convolve_3x3<false>(in_top, in_mid, in_low, p_out, vk_r0, vk_r1, vk_r2, stridex);
                         }
                     }
                 }
@@ -743,8 +694,7 @@ public:
                         for(int ow = 0; ow < output_w; ow += num_elems_written_per_iteration,
                             in_top += delta_input, in_mid += delta_input, in_low += delta_input, p_out += num_elems_written_per_iteration)
                         {
-                            auto vres = convolve_3x3(in_top, in_mid, in_low, vk_r0, vk_r1, vk_r2, stridex);
-                            accumulate_results<stridex>(p_out, vres);
+                            convolve_3x3<true>(in_top, in_mid, in_low, p_out, vk_r0, vk_r1, vk_r2, stridex);
                         }
                     }
                 }
@@ -1029,7 +979,7 @@ public:
         //  |__________________|
         //  |     pad_bottom   |
         //  |******************|
-        const int max_offset = input_stride_z * input_depth - (input->info()->padding().bottom + input->info()->padding().top) * input_stride_y;
+        const int64_t max_offset = input_stride_z * input_depth - (input->info()->padding().bottom + input->info()->padding().top) * input_stride_y;
         execute_window_loop(window_k, [&](const Coordinates & id_k) // loop on the batch size
         {
 
@@ -1052,34 +1002,34 @@ public:
                 for(int x = 0; x < input_width; x += num_elems_read_per_iteration)
                 {
                     // z == 0
-                    auto in_z   = static_cast<int>(id.z() * conv_stride_y - conv_pad_top);
+                    auto in_z   = static_cast<int64_t>(id.z() * conv_stride_y - conv_pad_top);
                     in_z        = std::min(static_cast<unsigned int>(in_z), static_cast<unsigned int>(input_depth));
                     auto offset = y_offset + in_z * input_stride_z;
                     offset      = std::min(offset, max_offset);
                     convolve_row1x9_nhwc(in_ptr + offset + x, weights_ptr + 0 * kernel_stride_z + x, input_stride_y, kernel_stride_y, out0, out1, out2, out3);
 
                     // z == 1
-                    in_z   = static_cast<int>(id.z() * conv_stride_y - conv_pad_top + 1);
+                    in_z   = static_cast<int64_t>(id.z() * conv_stride_y - conv_pad_top + 1);
                     in_z   = std::min(static_cast<unsigned int>(in_z), static_cast<unsigned int>(input_depth));
                     offset = y_offset + in_z * input_stride_z;
                     offset = std::min(offset, max_offset);
                     convolve_row1x9_nhwc(in_ptr + offset + x, weights_ptr + 1 * kernel_stride_z + x, input_stride_y, kernel_stride_y, out0, out1, out2, out3);
 
                     // z == 2
-                    in_z   = static_cast<int>(id.z() * conv_stride_y - conv_pad_top + 2);
+                    in_z   = static_cast<int64_t>(id.z() * conv_stride_y - conv_pad_top + 2);
                     in_z   = std::min(static_cast<unsigned int>(in_z), static_cast<unsigned int>(input_depth));
                     offset = y_offset + in_z * input_stride_z;
                     offset = std::min(offset, max_offset);
                     convolve_row1x9_nhwc(in_ptr + offset + x, weights_ptr + 2 * kernel_stride_z + x, input_stride_y, kernel_stride_y, out0, out1, out2, out3);
 
                     // z == 3
-                    in_z   = static_cast<int>(id.z() * conv_stride_y - conv_pad_top + 3);
+                    in_z   = static_cast<int64_t>(id.z() * conv_stride_y - conv_pad_top + 3);
                     offset = y_offset + in_z * input_stride_z;
                     offset = std::min(offset, max_offset);
                     convolve_row1x9_nhwc(in_ptr + offset + x, weights_ptr + 3 * kernel_stride_z + x, input_stride_y, kernel_stride_y, out0, out1, out2, out3);
 
                     // z == 4
-                    in_z   = static_cast<int>(id.z() * conv_stride_y - conv_pad_top + 4);
+                    in_z   = static_cast<int64_t>(id.z() * conv_stride_y - conv_pad_top + 4);
                     offset = y_offset + in_z * input_stride_z;
                     convolve_row1x9_nhwc(in_ptr + offset + x, weights_ptr + 4 * kernel_stride_z + x, input_stride_y, kernel_stride_y, out0, out1, out2, out3);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,6 +29,7 @@
 #include "arm_compute/core/CL/CLValidate.h"
 #include "arm_compute/core/CL/ICLTensor.h"
 #include "arm_compute/core/CL/OpenCL.h"
+#include "arm_compute/core/CL/gemm/CLGEMMHelpers.h"
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/TensorInfo.h"
@@ -36,6 +37,7 @@
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/Window.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+#include "support/StringSupport.h"
 
 namespace arm_compute
 {
@@ -53,6 +55,12 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, c
     ARM_COMPUTE_RETURN_ERROR_ON(rhs_info.n0 > 16);
     ARM_COMPUTE_RETURN_ERROR_ON(rhs_info.k0 > 16);
     ARM_COMPUTE_RETURN_ERROR_ON((rhs_info.k0 == 1) && (rhs_info.transpose));
+
+    if(rhs_info.export_to_cl_image)
+    {
+        const TensorInfo tensor_reshaped_info(compute_rhs_reshaped_shape(*input, rhs_info), 1, DataType::F32);
+        ARM_COMPUTE_RETURN_ON_ERROR(cl_gemm::validate_image2d_support_on_rhs(tensor_reshaped_info, rhs_info));
+    }
 
     ARM_COMPUTE_RETURN_ERROR_ON_F16_UNSUPPORTED(input);
     ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
@@ -85,6 +93,11 @@ std::pair<Status, Window> validate_and_configure_window(ITensorInfo *input, ITen
     window_changed = update_window_and_padding(win, input_access);
     output_access.set_valid_region(win, ValidRegion(Coordinates(0, 0), output->tensor_shape()));
 
+    if(rhs_info.export_to_cl_image)
+    {
+        arm_compute::cl_gemm::update_padding_for_cl_image(output);
+    }
+
     // Collapse along the Z direction
     // This collapse needs to be here in order to tune the Z dimension of LWS
     Window collapsed = win.collapse(win, Window::DimZ);
@@ -100,6 +113,11 @@ CLGEMMReshapeRHSMatrixKernel::CLGEMMReshapeRHSMatrixKernel()
 }
 
 void CLGEMMReshapeRHSMatrixKernel::configure(const ICLTensor *input, ICLTensor *output, const GEMMRHSMatrixInfo &rhs_info)
+{
+    configure(CLKernelLibrary::get().get_compile_context(), input, output, rhs_info);
+}
+
+void CLGEMMReshapeRHSMatrixKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input, ICLTensor *output, const GEMMRHSMatrixInfo &rhs_info)
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
 
@@ -123,7 +141,7 @@ void CLGEMMReshapeRHSMatrixKernel::configure(const ICLTensor *input, ICLTensor *
     kernel_name += rhs_info.transpose ? "t" : "nt";
 
     // Create kernel
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel(kernel_name, build_opts.options()));
+    _kernel = create_kernel(compile_context, kernel_name, build_opts.options());
 
     // Configure kernel window
     auto win_config = validate_and_configure_window(input->info(), output->info(), rhs_info);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -34,7 +34,7 @@
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/Window.h"
 
-#include "support/ToolchainSupport.h"
+#include "support/StringSupport.h"
 
 namespace arm_compute
 {
@@ -46,7 +46,7 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *prev_outp
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output);
     ARM_COMPUTE_RETURN_ERROR_ON_F16_UNSUPPORTED(input);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::QASYMM8, DataType::S32, DataType::F16, DataType::F32);
+    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::QASYMM8, DataType::QASYMM8_SIGNED, DataType::S32, DataType::F16, DataType::F32);
     ARM_COMPUTE_RETURN_ERROR_ON_MSG(op != ReductionOperation::ARG_IDX_MAX && op != ReductionOperation::ARG_IDX_MIN, "Only ARG_IDX_MAX and ARG_IDX_MIN are supported");
     ARM_COMPUTE_RETURN_ERROR_ON_MSG(axis >= TensorShape::num_max_dimensions, "Reduction axis greater than max number of dimensions");
     ARM_COMPUTE_RETURN_ERROR_ON_MSG(axis > 3, "Unsupported reduction axis");
@@ -116,6 +116,11 @@ CLArgMinMaxLayerKernel::CLArgMinMaxLayerKernel()
 
 void CLArgMinMaxLayerKernel::configure(const ICLTensor *input, const ICLTensor *prev_output, ICLTensor *output, unsigned int axis, ReductionOperation op)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input, prev_output, output, axis, op);
+}
+
+void CLArgMinMaxLayerKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input, const ICLTensor *prev_output, ICLTensor *output, unsigned int axis, ReductionOperation op)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
     ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(input->info(), (prev_output != nullptr) ? prev_output->info() : nullptr, output->info(), axis, op));
     auto win_config = validate_and_configure_window(input->info(), (prev_output != nullptr) ? prev_output->info() : nullptr, output->info(), axis, op);
@@ -167,7 +172,7 @@ void CLArgMinMaxLayerKernel::configure(const ICLTensor *input, const ICLTensor *
         default:
             ARM_COMPUTE_ERROR("Not supported");
     }
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel("arg_min_max_" + kernel_axis_name, build_opts.options()));
+    _kernel = create_kernel(compile_context, "arg_min_max_" + kernel_axis_name, build_opts.options());
 
     // Configure kernel window
     ICLKernel::configure_internal(std::get<1>(win_config), lws_hint);

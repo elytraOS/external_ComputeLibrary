@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,9 +27,6 @@
 #include "arm_compute/core/NEON/INEKernel.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Types.h"
-
-#include <cstdint>
-#include <map>
 
 namespace arm_compute
 {
@@ -61,7 +58,7 @@ public:
      * @note Supported tensor rank: up to 4
      * @note Padding not supported.
      *
-     * @param[in]  input               Source tensor. Data type supported: U16/S16/U32/S32/F16/F32. Data layouts supported: NHWC.
+     * @param[in]  input               Source tensor. Data type supported: U8/U16/S16/U32/S32/F16/F32. Data layouts supported: NHWC.
      * @param[in]  crop_boxes          Tensor containing all possible boxes used to crop the image, each represented by 4 normalized values.
      *                                 Data type supported: F32
      * @param[in]  box_ind             One dimensional tensor mapping the @p crop_box_ind to the index of the 3D image in @p input.
@@ -77,7 +74,7 @@ public:
      * @note Supported tensor rank: up to 4
      * @note Padding not supported.
      *
-     * @param[in] input               Source tensor info. Data type supported: U16/S16/U32/S32/F16/F32. Data layouts supported: NHWC.
+     * @param[in] input               Source tensor info. Data type supported: U8/U16/S16/U32/S32/F16/F32. Data layouts supported: NHWC.
      * @param[in] crop_boxes          Tensor info for tensor containing all possible boxes used to crop the image. Data type supported: F32
      * @param[in] box_ind             Tensor info for the one dimensional tensor mapping the @p crop_box_ind to the index of the 3D image
      *                                in @p input. Data type supported: F32
@@ -94,7 +91,7 @@ public:
     void run(const Window &window, const ThreadInfo &info) override;
 
     /** Function to use for in bounds crop for the particular tensor types passed to configure() */
-    using InBoundsCropFunction = void(const ITensor *, const ITensor *, float *, Coordinates, int32_t, int32_t, int32_t);
+    using InBoundsCropFunction = void(const ITensor *, const ITensor *, float *, Coordinates, int32_t, int32_t, int32_t, bool, bool);
 
 private:
     const ITensor *_input;
@@ -111,13 +108,7 @@ private:
     /** The number of columns out of bounds at the start and end of output. */
     std::array<uint32_t, 2> _cols_out_of_bounds;
 
-    std::pair<NECropKernel::InBoundsCropFunction *, NECropKernel::InBoundsCropFunction *> _in_bounds_crop_functions;
     NECropKernel::InBoundsCropFunction *_in_bounds_crop_function;
-
-    using CropFunction = void(const ITensor *, const ITensor *, Coordinates, float, const std::array<uint32_t, 2> &, const std::array<uint32_t, 2> &,
-                              NECropKernel::InBoundsCropFunction *);
-
-    NECropKernel::CropFunction *_crop_function;
 };
 } // namespace arm_compute
 #endif /*ARM_COMPUTE_NEON_CROP_KERNEL_H */

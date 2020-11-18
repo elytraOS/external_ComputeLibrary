@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -32,6 +32,7 @@
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/Types.h"
+#include "support/StringSupport.h"
 
 namespace arm_compute
 {
@@ -43,7 +44,7 @@ constexpr unsigned int num_rows_read_per_iteration  = 4;
 Status validate_arguments(const ITensorInfo *input0, const ITensorInfo *input1, const ITensorInfo *output)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_F16_UNSUPPORTED(input0);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input0, 1, DataType::QASYMM8, DataType::F16, DataType::F32);
+    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input0, 1, DataType::QASYMM8, DataType::QASYMM8_SIGNED, DataType::F16, DataType::F32);
     ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(input0, input1);
     ARM_COMPUTE_RETURN_ERROR_ON(is_data_type_quantized_asymmetric(input0->data_type()) && (output->data_type() != DataType::S32));
     ARM_COMPUTE_RETURN_ERROR_ON(input0->dimension(2) != input1->dimension(1));
@@ -82,6 +83,11 @@ BorderSize CLGEMMMatrixVectorMultiplyKernel::border_size() const
 
 void CLGEMMMatrixVectorMultiplyKernel::configure(const ICLTensor *input0, const ICLTensor *input1, ICLTensor *output)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input0, input1, output);
+}
+
+void CLGEMMMatrixVectorMultiplyKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input0, const ICLTensor *input1, ICLTensor *output)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input0, input1, output);
     ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(input0->info(), input1->info(), output->info()));
 
@@ -99,7 +105,7 @@ void CLGEMMMatrixVectorMultiplyKernel::configure(const ICLTensor *input0, const 
     build_opts.add_option("-DSRC_HEIGHT=" + support::cpp11::to_string(input0->info()->dimension(1)));
 
     std::string kernel_name = is_quantized ? std::string("gemm_mv_quantized") : std::string("gemm_mv");
-    _kernel                 = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel(kernel_name, build_opts.options()));
+    _kernel                 = create_kernel(compile_context, kernel_name, build_opts.options());
 
     // Add static arguments
     if(is_quantized)

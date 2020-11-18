@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,7 +27,7 @@
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/runtime/NEON/NEScheduler.h"
-#include "support/ToolchainSupport.h"
+#include "support/MemorySupport.h"
 
 #include <cmath>
 #include <tuple>
@@ -48,9 +48,9 @@ void NEConvolutionLayer::configure(ITensor *input, const ITensor *weights, const
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, weights, output);
     ARM_COMPUTE_UNUSED(num_groups);
     ARM_COMPUTE_ERROR_THROW_ON(NEConvolutionLayer::validate(input->info(), weights->info(), ((biases != nullptr) ? biases->info() : nullptr), output->info(), conv_info, weights_info, dilation, act_info,
-                                                            enable_fast_math));
+                                                            enable_fast_math, num_groups));
 
-    switch(NEConvolutionLayer::get_convolution_method(input->info(), weights->info(), output->info(), conv_info, weights_info, dilation, act_info))
+    switch(NEConvolutionLayer::get_convolution_method(input->info(), weights->info(), output->info(), conv_info, weights_info, dilation, act_info, enable_fast_math))
     {
         case ConvolutionMethod::WINOGRAD:
         {
@@ -91,7 +91,7 @@ Status NEConvolutionLayer::validate(const ITensorInfo *input, const ITensorInfo 
 {
     ARM_COMPUTE_RETURN_ERROR_ON_MSG((num_groups != 1), "Grouping (num_groups != 1) is not supported on NEON");
 
-    switch(NEConvolutionLayer::get_convolution_method(input, weights, output, conv_info, weights_info, dilation, act_info))
+    switch(NEConvolutionLayer::get_convolution_method(input, weights, output, conv_info, weights_info, dilation, act_info, enable_fast_math))
     {
         case ConvolutionMethod::WINOGRAD:
             //Validate Winograd
@@ -102,7 +102,7 @@ Status NEConvolutionLayer::validate(const ITensorInfo *input, const ITensorInfo 
             ARM_COMPUTE_RETURN_ON_ERROR(NEGEMMConvolutionLayer::validate(input, weights, biases, output, conv_info, weights_info, dilation, act_info));
             break;
         case ConvolutionMethod::DIRECT:
-            //Validate Gemm-based Convolution
+            //Validate Direct Convolution
             ARM_COMPUTE_RETURN_ON_ERROR(NEDirectConvolutionLayer::validate(input, weights, biases, output, conv_info, act_info));
             break;
         case ConvolutionMethod::FFT:
@@ -167,7 +167,8 @@ ConvolutionMethod NEConvolutionLayer::get_convolution_method(const ITensorInfo *
     else
     {
         // SRGAN
-        if((input->dimension(idx_h) > 720U) && (output->dimension(idx_h) > 720U) && (weights->dimension(idx_h) == 9)
+        // Output might not be initialized when it is an internal tensor of the layer using the convolution
+        if(input->total_size() > 1e7 && (weights->dimension(idx_h) > 7)
            && (NEDirectConvolutionLayer::validate(input, weights, nullptr, output, conv_info, act_info)))
         {
             return ConvolutionMethod::DIRECT;
@@ -180,6 +181,39 @@ ConvolutionMethod NEConvolutionLayer::get_convolution_method(const ITensorInfo *
         {
             return ConvolutionMethod::GEMM;
         }
+
+#ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+        // This heuristics only applies to F16 data type on A55r1
+        if(NEScheduler::get().cpu_info().get_cpu_model() == CPUModel::A55r1 && enable_fast_math && input->data_type() == DataType::F16)
+        {
+            // Exclude known bad winograd configs (and defaults to GEMM)
+            const std::vector<ConvolutionConfiguration> known_bad_winograd_f16_with_fastmath_configs =
+            {
+                // Squeezenet_V1_1 fire2 and fire3
+                ConvolutionConfiguration(Size2D(56U, 56U), Size2D(3U, 3U), Size2D(16U, 64U), PadStrideInfo(1U, 1U, 1U, 1U)),
+                // Squeezenet_V1_1 fire6 and fire7
+                ConvolutionConfiguration(Size2D(14U, 14U), Size2D(3U, 3U), Size2D(48U, 192U), PadStrideInfo(1U, 1U, 1U, 1U)),
+                // Squeezenet_V1_1 fire8 and fire9
+                ConvolutionConfiguration(Size2D(14U, 14U), Size2D(3U, 3U), Size2D(64U, 256U), PadStrideInfo(1U, 1U, 1U, 1U)),
+            };
+            const auto find_conv_config = [&](ConvolutionConfiguration c)
+            {
+                const PadStrideInfo info = std::get<3>(c);
+
+                return std::get<0>(c) == Size2D(input->dimension(idx_w), input->dimension(idx_h)) && std::get<1>(c) == Size2D(weights->dimension(idx_w), weights->dimension(idx_h))
+                       && std::get<2>(c) == Size2D(weights->dimension(idx_c), weights->dimension(3)) && info.pad_top() == conv_info.pad_top() && info.pad_right() == conv_info.pad_right()
+                       && info.pad_bottom() == conv_info.pad_bottom() && info.pad_left() == conv_info.pad_left() && info.stride() == conv_info.stride();
+            };
+
+            bool found_bad = std::find_if(known_bad_winograd_f16_with_fastmath_configs.begin(), known_bad_winograd_f16_with_fastmath_configs.end(),
+                                          find_conv_config)
+                             != known_bad_winograd_f16_with_fastmath_configs.end();
+            if(found_bad)
+            {
+                return ConvolutionMethod::GEMM;
+            }
+        }
+#endif // __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
         return bool(NEWinogradConvolutionLayer::validate(input, weights, nullptr, output, conv_info, act_info, enable_fast_math)) ? ConvolutionMethod::WINOGRAD : ConvolutionMethod::GEMM;
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -47,13 +47,14 @@ namespace backends
 struct NETargetInfo
 {
     using TensorType         = arm_compute::ITensor;
+    using SrcTensorType      = const arm_compute::ITensor;
     using TensorConcreteType = arm_compute::Tensor;
     static Target TargetType;
 };
 
 Target NETargetInfo::TargetType = Target::NEON;
 
-/** Collection of CL convolution functions */
+/** Collection of NEON convolution functions */
 struct NEConvolutionLayerFunctions
 {
     using GenericConvolutionLayer  = NEConvolutionLayer;
@@ -62,12 +63,18 @@ struct NEConvolutionLayerFunctions
     using WinogradConvolutionLayer = NEWinogradConvolutionLayer;
 };
 
-/** Collection of CL element-wise functions */
+/** Collection of NEON element-wise functions */
 struct NEEltwiseFunctions
 {
     using Addition       = NEArithmeticAddition;
     using Subtraction    = NEArithmeticSubtraction;
     using Multiplication = NEPixelWiseMultiplication;
+};
+
+/** Collection of NEON unary element-wise functions */
+struct NEUnaryEltwiseFunctions
+{
+    using Exp = NEExpLayer;
 };
 
 /** Function and tensor types to be used inside a NEON fused convolution/batch normalization layer */
@@ -80,78 +87,6 @@ struct NEFusedLayerTypes
 
 namespace detail
 {
-// Specialized functions
-template <>
-std::unique_ptr<IFunction> create_convolution_layer<NEConvolutionLayerFunctions, NETargetInfo>(ConvolutionLayerNode &node,
-                                                                                               GraphContext &ctx)
-{
-    validate_node<NETargetInfo>(node, 3 /* expected inputs */, 1 /* expected outputs */);
-
-    // Extract IO and info
-    NETargetInfo::TensorType *input   = get_backing_tensor<NETargetInfo>(node.input(0));
-    NETargetInfo::TensorType *weights = get_backing_tensor<NETargetInfo>(node.input(1));
-    NETargetInfo::TensorType *biases  = get_backing_tensor<NETargetInfo>(node.input(2));
-    NETargetInfo::TensorType *output  = get_backing_tensor<NETargetInfo>(node.output(0));
-
-    const bool is_quantized = is_data_type_quantized_asymmetric(input->info()->data_type());
-
-    if(is_quantized)
-    {
-        biases->info()->set_data_type(DataType::S32);
-    }
-
-    const PadStrideInfo       conv_info      = node.convolution_info();
-    const ConvolutionMethod   conv_algorithm = node.convolution_method();
-    const ActivationLayerInfo fused_act      = node.fused_activation();
-
-    // Create and configure function (we assume that functions have been validated before creation)
-    std::shared_ptr<IMemoryManager> mm = get_memory_manager(ctx, Target::NEON);
-    std::unique_ptr<IFunction>      func;
-    std::string                     func_name;
-
-    if(conv_algorithm == ConvolutionMethod::Direct)
-    {
-        std::tie(func, func_name) = create_named_memory_managed_function<NEDirectConvolutionLayer>(
-                                        std::string("DirectConvolutionLayer"), mm, input, weights, biases, output, conv_info, fused_act);
-    }
-    else if(conv_algorithm == ConvolutionMethod::GEMM)
-    {
-        std::tie(func, func_name) = create_named_memory_managed_function<NEGEMMConvolutionLayer>(
-                                        std::string("GEMMConvolutionLayer"), mm, input, weights, biases, output, conv_info, WeightsInfo(), Size2D(1, 1), fused_act);
-    }
-    else if(conv_algorithm == ConvolutionMethod::Winograd)
-    {
-        std::tie(func, func_name) = create_named_memory_managed_function<NEWinogradConvolutionLayer>(
-                                        std::string("WinogradConvolutionLayer"), mm, input, weights, biases, output, conv_info, fused_act);
-    }
-    else
-    {
-        std::tie(func, func_name) = create_named_memory_managed_function<NEConvolutionLayer>(
-                                        std::string("ConvolutionLayer"), mm, input, weights, biases, output, conv_info, WeightsInfo(), Size2D(1, 1), fused_act);
-    }
-
-    // Log info
-    std::ostringstream qss;
-    if(is_quantized)
-    {
-        qss << " Input QuantInfo: " << input->info()->quantization_info()
-            << " Weights QuantInfo: " << weights->info()->quantization_info()
-            << " Output QuantInfo: " << output->info()->quantization_info();
-    }
-    ARM_COMPUTE_LOG_GRAPH_INFO("Instantiated "
-                               << node.name()
-                               << " Type: " << func_name
-                               << " Target: " << NETargetInfo::TargetType
-                               << " Data Type: " << input->info()->data_type()
-                               << qss.str()
-                               << " Input shape: " << input->info()->tensor_shape()
-                               << " Weights shape: " << weights->info()->tensor_shape()
-                               << " Output shape: " << output->info()->tensor_shape()
-                               << (fused_act.enabled() ? " " + to_string(fused_act.activation()) : "")
-                               << std::endl);
-    return func;
-}
-
 template <>
 std::unique_ptr<IFunction> create_normalization_layer<NENormalizationLayer, NETargetInfo>(NormalizationLayerNode &node, GraphContext &ctx)
 {
@@ -179,7 +114,7 @@ std::unique_ptr<IFunction> create_normalization_layer<NENormalizationLayer, NETa
                                << " Normalization info: " << norm_info.type()
                                << std::endl);
 
-    return std::move(func);
+    return RETURN_UNIQUE_PTR(func);
 }
 } // namespace detail
 
@@ -215,6 +150,8 @@ std::unique_ptr<IFunction> NEFunctionFactory::create(INode *node, GraphContext &
             return detail::create_detection_post_process_layer<NEDetectionPostProcessLayer, NETargetInfo>(*polymorphic_downcast<DetectionPostProcessLayerNode *>(node));
         case NodeType::EltwiseLayer:
             return detail::create_eltwise_layer<NEEltwiseFunctions, NETargetInfo>(*polymorphic_downcast<EltwiseLayerNode *>(node));
+        case NodeType::UnaryEltwiseLayer:
+            return detail::create_unary_eltwise_layer<NEUnaryEltwiseFunctions, NETargetInfo>(*polymorphic_downcast<UnaryEltwiseLayerNode *>(node));
         case NodeType::FlattenLayer:
             return detail::create_flatten_layer<NEFlattenLayer, NETargetInfo>(*polymorphic_downcast<FlattenLayerNode *>(node));
         case NodeType::FullyConnectedLayer:

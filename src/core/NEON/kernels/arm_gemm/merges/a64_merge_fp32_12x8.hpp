@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Arm Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,9 +29,9 @@ template<>
 void MergeResults<12, 8, false>(float *out, const float *in, const int ldout, const int y0, const int ymax, const int x0, const int xmax, const float *bias, Activation act, bool append)
 {
     const float *inptr = in;
-    float nullbias[12] = { 0 };
-    float minval = - std::numeric_limits<float>::infinity();
-    float maxval =   std::numeric_limits<float>::infinity();
+    float nullbias[12];
+    float minval = - static_cast<float>(std::numeric_limits<float>::infinity());
+    float maxval =   static_cast<float>(std::numeric_limits<float>::infinity());
 
     switch(act.type)
     {
@@ -1106,11 +1106,7 @@ void MergeResults<12, 8, false>(float *out, const float *in, const int ldout, co
             }
             else
             {
-                const float *biasptr = nullbias;
-                if (bias)
-                {
-                    biasptr = bias + i;
-                }
+                const float *biasptr = bias ? bias + i : nullbias;
 
                 switch(height)
                 {

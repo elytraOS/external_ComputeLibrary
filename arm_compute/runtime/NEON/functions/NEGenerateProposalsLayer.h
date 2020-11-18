@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,18 +23,19 @@
  */
 #ifndef ARM_COMPUTE_NEGENERATEPROPOSALSLAYER_H
 #define ARM_COMPUTE_NEGENERATEPROPOSALSLAYER_H
+
 #include "arm_compute/core/NEON/kernels/NEBoundingBoxTransformKernel.h"
 #include "arm_compute/core/NEON/kernels/NEDequantizationLayerKernel.h"
 #include "arm_compute/core/NEON/kernels/NEGenerateProposalsLayerKernel.h"
 #include "arm_compute/core/NEON/kernels/NEPadLayerKernel.h"
 #include "arm_compute/core/NEON/kernels/NEPermuteKernel.h"
 #include "arm_compute/core/NEON/kernels/NEQuantizationLayerKernel.h"
-#include "arm_compute/core/NEON/kernels/NEReshapeLayerKernel.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/CPP/CPPScheduler.h"
 #include "arm_compute/runtime/CPP/functions/CPPBoxWithNonMaximaSuppressionLimit.h"
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/MemoryGroup.h"
+#include "arm_compute/runtime/NEON/functions/NEReshapeLayer.h"
 #include "arm_compute/runtime/Tensor.h"
 
 namespace arm_compute
@@ -64,12 +65,8 @@ public:
     NEGenerateProposalsLayer(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEGenerateProposalsLayer(const NEGenerateProposalsLayer &) = delete;
-    /** Default move constructor */
-    NEGenerateProposalsLayer(NEGenerateProposalsLayer &&) = default;
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEGenerateProposalsLayer &operator=(const NEGenerateProposalsLayer &) = delete;
-    /** Default move assignment operator */
-    NEGenerateProposalsLayer &operator=(NEGenerateProposalsLayer &&) = default;
 
     /** Set the input and output tensors.
      *
@@ -116,9 +113,9 @@ private:
 
     // Neon kernels
     NEPermuteKernel              _permute_deltas_kernel;
-    NEReshapeLayerKernel         _flatten_deltas_kernel;
+    NEReshapeLayer               _flatten_deltas;
     NEPermuteKernel              _permute_scores_kernel;
-    NEReshapeLayerKernel         _flatten_scores_kernel;
+    NEReshapeLayer               _flatten_scores;
     NEComputeAllAnchorsKernel    _compute_anchors_kernel;
     NEBoundingBoxTransformKernel _bounding_box_kernel;
     NEPadLayerKernel             _pad_kernel;

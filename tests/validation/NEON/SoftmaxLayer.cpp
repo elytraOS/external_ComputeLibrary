@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -63,37 +63,6 @@ const auto CNNDataTypes = framework::dataset::make("DataType",
 TEST_SUITE(NEON)
 TEST_SUITE(SoftmaxLayer)
 
-DATA_TEST_CASE(Configuration, framework::DatasetMode::ALL, combine(concat(datasets::Small2DShapes(), datasets::Medium2DShapes()), CNNDataTypes), shape, data_type)
-{
-    const QuantizationInfo quantization_info = is_data_type_quantized_asymmetric(data_type) ? QuantizationInfo(1.f / 255.f, 0) : QuantizationInfo();
-
-    // Create tensors
-    Tensor src = create_tensor<Tensor>(shape, data_type, 1, quantization_info);
-    Tensor dst = create_tensor<Tensor>(shape, data_type, 1, QuantizationInfo(1.f / 256.f, 0));
-
-    ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
-
-    // Create and configure function
-    NESoftmaxLayer smx_layer;
-    smx_layer.configure(&src, &dst);
-
-    // Validate valid region
-    const ValidRegion valid_region = shape_to_valid_region(shape);
-    validate(src.info()->valid_region(), valid_region);
-    validate(dst.info()->valid_region(), valid_region);
-
-    // NESoftmaxLayer configures the paddings only in the 2D case
-    if(shape.num_dimensions() <= 2)
-    {
-        // Validate padding
-        const int         step    = 16 / data_size_from_type(data_type);
-        const PaddingSize padding = PaddingCalculator(shape.x(), step).required_padding();
-        validate(src.info()->padding(), padding);
-        validate(dst.info()->padding(), PaddingSize());
-    }
-}
-
 // *INDENT-OFF*
 // clang-format off
 DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(zip(
@@ -101,21 +70,21 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(zip(
                                                        TensorInfo(TensorShape(27U, 13U), 1, DataType::F32),    // Mismatching shapes
                                                        TensorInfo(TensorShape(27U, 13U), 1, DataType::QASYMM8, // Invalid output quantization info
                                                                   QuantizationInfo(1.f/256, 12)),
-                                                       TensorInfo(TensorShape(27U, 13U), 1, DataType::F32),    // Window shrink
-                                                       TensorInfo(TensorShape(27U, 13U, 2U), 1, DataType::F32),// Invalid input dimensionality
                                                        TensorInfo(TensorShape(32U, 13U), 1, DataType::F32),
                                                        TensorInfo(TensorShape(32U, 13U), 1, DataType::QASYMM8,
                                                                   QuantizationInfo(1.f/256, 12)),
-                                                       TensorInfo(TensorShape(32U, 13U), 1, DataType::QASYMM8,  //Invalid axis value
+                                                       TensorInfo(TensorShape(32U, 13U), 1, DataType::QASYMM8,  //Invalid axis high
+                                                                  QuantizationInfo(1.f/256, 12)),
+                                                       TensorInfo(TensorShape(32U, 13U), 1, DataType::QASYMM8,  //Invalid axis low
                                                                   QuantizationInfo(1.f/256, 12)),
                                                       }),
                framework::dataset::make("OutputInfo",{ TensorInfo(TensorShape(27U, 13U), 1, DataType::F16),
                                                        TensorInfo(TensorShape(27U, 11U), 1, DataType::F32),
                                                        TensorInfo(TensorShape(27U, 13U), 1, DataType::QASYMM8,
                                                                   QuantizationInfo(1.f/256, 12)),
-                                                       TensorInfo(TensorShape(27U, 13U), 1, DataType::F32),
-                                                       TensorInfo(TensorShape(27U, 13U, 2U), 1, DataType::F32),
                                                        TensorInfo(TensorShape(32U, 13U), 1, DataType::F32),
+                                                       TensorInfo(TensorShape(32U, 13U), 1, DataType::QASYMM8,
+                                                                  QuantizationInfo(1.f/256, 0)),
                                                        TensorInfo(TensorShape(32U, 13U), 1, DataType::QASYMM8,
                                                                   QuantizationInfo(1.f/256, 0)),
                                                        TensorInfo(TensorShape(32U, 13U), 1, DataType::QASYMM8,
@@ -128,19 +97,16 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(zip(
                                                   1.0,
                                                   2.0,
                                                   1.0,
-                                                  2.0,
-                                                  1.0,
                                                 })),
-               framework::dataset::make("axis", { 1,
-                                                  1,
-                                                  1,
-                                                  1,
-                                                  1,
-                                                  1,
-                                                  1,
+               framework::dataset::make("axis", { 0,
                                                   0,
+                                                  0,
+                                                  0,
+                                                  0,
+                                                  2,
+                                                  -3,
                                                 })),
-               framework::dataset::make("Expected", { false, false, false, false, false, true, true, false })),
+               framework::dataset::make("Expected", { false, false, false, true, true, false, false })),
                input_info, output_info, beta, axis, expected)
 {
     ARM_COMPUTE_EXPECT(bool(NESoftmaxLayer::validate(&input_info.clone()->set_is_resizable(false), &output_info.clone()->set_is_resizable(false), beta, axis)) == expected, framework::LogLevel::ERRORS);
@@ -157,7 +123,7 @@ TEST_SUITE(FP16)
 FIXTURE_DATA_TEST_CASE(RunSmall, NESoftmaxLayerFixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(datasets::Small4DShapes(),
                                                                                                                  framework::dataset::make("DataType", DataType::F16)),
                                                                                                                  framework::dataset::make("Beta", { 1.0f, 2.0f })),
-                                                                                                         framework::dataset::make("Axis", { 1 })))
+                                                                                                         framework::dataset::make("Axis", { 0 })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_f16);
@@ -165,7 +131,7 @@ FIXTURE_DATA_TEST_CASE(RunSmall, NESoftmaxLayerFixture<half>, framework::Dataset
 FIXTURE_DATA_TEST_CASE(RunSmall4D, NESoftmaxLayerFixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(datasets::Small4DShapes(),
                                                                                                                    framework::dataset::make("DataType", DataType::F16)),
                                                                                                                    framework::dataset::make("Beta", { 1.0f, 2.0f })),
-                                                                                                           framework::dataset::make("Axis", { 1, 2, 3 })))
+                                                                                                           framework::dataset::make("Axis", { 0 })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_f16);
@@ -173,7 +139,7 @@ FIXTURE_DATA_TEST_CASE(RunSmall4D, NESoftmaxLayerFixture<half>, framework::Datas
 FIXTURE_DATA_TEST_CASE(RunLarge, NESoftmaxLayerFixture<half>, framework::DatasetMode::NIGHTLY, combine(combine(combine(datasets::SoftmaxLayerLargeShapes(),
                                                                                                                        framework::dataset::make("DataType", DataType::F16)),
                                                                                                                framework::dataset::make("Beta", { 1.0f, 2.0f })),
-                                                                                                       framework::dataset::make("Axis", { 1 })))
+                                                                                                       framework::dataset::make("Axis", { 0 })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_f16);
@@ -185,7 +151,7 @@ TEST_SUITE(FP32)
 FIXTURE_DATA_TEST_CASE(RunSmall2D, NESoftmaxLayerFixture<float>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(datasets::SoftmaxLayerSmallShapes(),
                                                                                                                     framework::dataset::make("DataType", DataType::F32)),
                                                                                                                     framework::dataset::make("Beta", { 1.0f, 2.0f })),
-                                                                                                            framework::dataset::make("Axis", { 1 })))
+                                                                                                            framework::dataset::make("Axis", { 0 })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_f32);
@@ -193,7 +159,7 @@ FIXTURE_DATA_TEST_CASE(RunSmall2D, NESoftmaxLayerFixture<float>, framework::Data
 FIXTURE_DATA_TEST_CASE(RunSmall4D, NESoftmaxLayerFixture<float>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(datasets::Small4DShapes(),
                                                                                                                     framework::dataset::make("DataType", DataType::F32)),
                                                                                                                     framework::dataset::make("Beta", { 1.0f, 2.0f })),
-                                                                                                            framework::dataset::make("Axis", { 1, 2, 3 })))
+                                                                                                            framework::dataset::make("Axis", { 0 })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_f32);
@@ -201,7 +167,7 @@ FIXTURE_DATA_TEST_CASE(RunSmall4D, NESoftmaxLayerFixture<float>, framework::Data
 FIXTURE_DATA_TEST_CASE(RunLarge, NESoftmaxLayerFixture<float>, framework::DatasetMode::NIGHTLY, combine(combine(combine(datasets::SoftmaxLayerLargeShapes(),
                                                                                                                         framework::dataset::make("DataType", DataType::F32)),
                                                                                                                 framework::dataset::make("Beta", { 1.0f, 2.0f })),
-                                                                                                        framework::dataset::make("Axis", { 1 })))
+                                                                                                        framework::dataset::make("Axis", { 0 })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_f32);
@@ -218,7 +184,7 @@ FIXTURE_DATA_TEST_CASE(RunSmall2D, NESoftmaxLayerQuantizedFixture<uint8_t>, fram
                                                                                                                  framework::dataset::make("DataType", DataType::QASYMM8)),
                                                                                                                  combine(framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.5f, -10) }),
                                                                                                                          framework::dataset::make("Beta", { 1.0f, 2.f }))),
-                                                                                                                 framework::dataset::make("Axis", { 1 })))
+                                                                                                                 framework::dataset::make("Axis", { 0 })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_qasymm8);
@@ -227,7 +193,7 @@ FIXTURE_DATA_TEST_CASE(RunSmall4D, NESoftmaxLayerQuantizedFixture<uint8_t>, fram
                                                                                                                  framework::dataset::make("DataType", DataType::QASYMM8)),
                                                                                                                  combine(framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.5f, -10) }),
                                                                                                                          framework::dataset::make("Beta", { 1.0f, 2.f }))),
-                                                                                                                 framework::dataset::make("Axis", { 1, 2, 3 })))
+                                                                                                                 framework::dataset::make("Axis", { 0 })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_qasymm8);
@@ -236,7 +202,7 @@ FIXTURE_DATA_TEST_CASE(RunLarge, NESoftmaxLayerQuantizedFixture<uint8_t>, framew
                                                                                                                    framework::dataset::make("DataType", DataType::QASYMM8)),
                                                                                                                    combine(framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.5f, -10) }),
                                                                                                                            framework::dataset::make("Beta", { 1.0f, 2.0f }))),
-                                                                                                                   framework::dataset::make("Axis", { 1 })))
+                                                                                                                   framework::dataset::make("Axis", { 0 })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_qasymm8);
@@ -248,7 +214,7 @@ FIXTURE_DATA_TEST_CASE(RunSmall2D, NESoftmaxLayerQuantizedFixture<int8_t>, frame
                                                                                                                         framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)),
                                                                                                                         combine(framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.5f, -10) }),
                                                                                                                                 framework::dataset::make("Beta", { 1.0f, 2.f }))),
-                                                                                                                framework::dataset::make("Axis", { 1 })))
+                                                                                                                framework::dataset::make("Axis", { 0 })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_qasymm8_signed);
@@ -257,7 +223,7 @@ FIXTURE_DATA_TEST_CASE(RunSmall4D, NESoftmaxLayerQuantizedFixture<int8_t>, frame
                                                                                                                         framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)),
                                                                                                                         combine(framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.5f, -10) }),
                                                                                                                                 framework::dataset::make("Beta", { 1.0f, 2.f }))),
-                                                                                                                framework::dataset::make("Axis", { 1, 2, 3 })))
+                                                                                                                framework::dataset::make("Axis", { 0 })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_qasymm8_signed);

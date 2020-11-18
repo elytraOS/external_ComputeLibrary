@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,7 +24,7 @@
 #ifndef ARM_COMPUTE_TEST_UTILS
 #define ARM_COMPUTE_TEST_UTILS
 
-#include "support/ToolchainSupport.h"
+#include "support/StringSupport.h"
 
 #include <algorithm>
 #include <cmath>
