@@ -25,6 +25,7 @@ arm_compute_library_defaults {
        cppflags: [
             "-std=c++14",
             "-fexceptions",
+            "-fno-addrsig",
             "-DBOOST_NO_AUTO_PTR",
             "-DEMBEDDED_KERNELS",
             "-DARM_COMPUTE_ASSERTS_ENABLED",
