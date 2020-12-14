@@ -39,19 +39,7 @@ arm_compute_library_defaults {
     rtti: true,
 }
 
-cc_library_static {
-    name: "arm_compute_library",
-    defaults: ["acl-default-cppflags"],
-    proprietary: true,
-    local_include_dirs: ["build/android-arm64v8a/src/core",
-                         "build/android-arm64v8a/src/core/CL",
-                         "arm_compute/core/NEON/kernels/assembly",
-                         "arm_compute/core/NEON/kernels/convolution/common",
-                         "arm_compute/core/NEON/kernels/convolution/depthwise",
-                         "src/core/NEON/kernels/assembly",
-                         "src/core/NEON/kernels/convolution/winograd"],
-    export_include_dirs: [".", "./include"],
-    srcs: [
+compute_lib_src = [
         "src/core/AccessWindowAutoPadding.cpp",
         "src/core/AccessWindowStatic.cpp",
         "src/core/AccessWindowTranspose.cpp",
@@ -761,11 +749,23 @@ cc_library_static {
         "utils/CommonGraphOptions.cpp",
         "utils/GraphUtils.cpp",
         "utils/Utils.cpp",
-        
-    ],
+]
+
+cc_library_static {
+    name: "arm_compute_library",
+    defaults: ["acl-default-cppflags"],
+    proprietary: true,
+    local_include_dirs: ["build/android-arm64v8a/src/core",
+                         "build/android-arm64v8a/src/core/CL",
+                         "arm_compute/core/NEON/kernels/assembly",
+                         "arm_compute/core/NEON/kernels/convolution/common",
+                         "arm_compute/core/NEON/kernels/convolution/depthwise",
+                         "src/core/NEON/kernels/assembly",
+                         "src/core/NEON/kernels/convolution/winograd"],
+    export_include_dirs: [".", "./include"],
     arch: {
         arm: {
-            srcs: [
+            srcs: compute_lib_src + [
                 "src/core/NEON/kernels/arm_gemm/kernels/a32_sgemm_8x6/a53.cpp",
                 "src/core/NEON/kernels/arm_gemm/kernels/a32_sgemm_8x6/a55r1.cpp",
                 "src/core/NEON/kernels/arm_gemm/kernels/a32_sgemm_8x6/generic.cpp",
@@ -773,7 +773,7 @@ cc_library_static {
             ],
         },
         arm64: {
-            srcs: [
+            srcs: compute_lib_src + [
                 "src/core/NEON/kernels/arm_gemm/kernels/a64_gemm_s16_12x8/generic.cpp",
                 "src/core/NEON/kernels/arm_gemm/kernels/a64_gemm_s8_12x8/a55r1.cpp",
                 "src/core/NEON/kernels/arm_gemm/kernels/a64_gemm_s8_12x8/generic.cpp",
