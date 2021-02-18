@@ -34,7 +34,6 @@ arm_compute_library_defaults {
             "-Wno-inline-asm",
             "-Wno-implicit-fallthrough",
             "-DNO_DOT_IN_TOOLCHAIN",
-            "-no-integrated-as"
     ],
     rtti: true,
 }
