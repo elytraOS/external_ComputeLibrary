@@ -273,15 +273,9 @@ bool ImageAccessor::access_tensor(ITensor &tensor)
             std::tie(permuted_shape, perm) = compute_permutation_parameters(tensor.info()->tensor_shape(), tensor.info()->data_layout());
         }
 
-#ifdef __arm__
         ARM_COMPUTE_EXIT_ON_MSG_VAR(image_loader->width() != permuted_shape.x() || image_loader->height() != permuted_shape.y(),
-                                    "Failed to load image file: dimensions [%d,%d] not correct, expected [%" PRIu32 ",%" PRIu32 "].",
+                                    "Failed to load image file: dimensions [%d,%d] not correct, expected [%zu ,%zu ].",
                                     image_loader->width(), image_loader->height(), permuted_shape.x(), permuted_shape.y());
-#else  // __arm__
-        ARM_COMPUTE_EXIT_ON_MSG_VAR(image_loader->width() != permuted_shape.x() || image_loader->height() != permuted_shape.y(),
-                                    "Failed to load image file: dimensions [%d,%d] not correct, expected [%" PRIu64 ",%" PRIu64 "].",
-                                    image_loader->width(), image_loader->height(), permuted_shape.x(), permuted_shape.y());
-#endif // __arm__
 
         // Fill the tensor with the PPM content (BGR)
         image_loader->fill_planar_tensor(tensor, _bgr);
@@ -356,15 +350,9 @@ bool ValidationInputAccessor::access_tensor(arm_compute::ITensor &tensor)
                                                                             tensor.info()->data_layout());
         }
 
-#ifdef __arm__
         ARM_COMPUTE_EXIT_ON_MSG_VAR(jpeg.width() != permuted_shape.x() || jpeg.height() != permuted_shape.y(),
-                                    "Failed to load image file: dimensions [%d,%d] not correct, expected [%" PRIu32 ",%" PRIu32 "].",
+                                    "Failed to load image file: dimensions [%d,%d] not correct, expected [%zu,%zu ].",
                                     jpeg.width(), jpeg.height(), permuted_shape.x(), permuted_shape.y());
-#else  // __arm__
-        ARM_COMPUTE_EXIT_ON_MSG_VAR(jpeg.width() != permuted_shape.x() || jpeg.height() != permuted_shape.y(),
-                                    "Failed to load image file: dimensions [%d,%d] not correct, expected [%" PRIu64 ",%" PRIu64 "].",
-                                    jpeg.width(), jpeg.height(), permuted_shape.x(), permuted_shape.y());
-#endif // __arm__
 
         // Fill the tensor with the JPEG content (BGR)
         jpeg.fill_planar_tensor(tensor, _bgr);
